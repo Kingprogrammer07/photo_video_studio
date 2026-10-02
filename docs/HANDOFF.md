@@ -1,0 +1,48 @@
+# Photo Video Studio Handoff
+
+Last updated: 2026-10-02
+
+## Product Direction
+
+Photo Video Studio is becoming a simple but powerful Windows desktop studio for users around age 30-55. The product goal is: add photos, choose a beautiful template/background, optionally improve photos with AI/pro controls, and export a polished MP4 without needing Photoshop or a professional editor.
+
+## Current Architecture
+
+- `app.py` is the main CustomTkinter application. It now uses top-level tabs: `Slideshow`, `Fonlar/Shablonlar`, `AI Rasm Studio`, `Video Tools`, and `Sozlamalar`.
+- `studio_engine.py` owns video rendering. It accepts enhanced photo paths and optional background/template layout fields, then renders title card, photo scenes, outro, music, and final MP4 through ffmpeg.
+- `image_enhance.py` owns local photo enhancement, AI cache keys, OpenAI image-edit integration, and OpenAI API key testing.
+- `pvs_storage.py` owns AppData folders, settings, background import, template JSON, AI cache paths, and secure API key storage.
+- `video_converter/src/video_converter/converter.py` remains the ffmpeg conversion backend; `app.py` imports it into the `Video Tools` tab.
+
+## Persistent Data
+
+Runtime data is outside the repo:
+
+- `%APPDATA%\PhotoVideoStudio\settings.json`
+- `%APPDATA%\PhotoVideoStudio\backgrounds\`
+- `%APPDATA%\PhotoVideoStudio\templates\`
+- `%APPDATA%\PhotoVideoStudio\cache\ai\`
+
+API keys are not stored in JSON. On Windows, `pvs_storage.py` uses Windows Credential Manager through `ctypes`; `keyring` is only an optional fallback.
+
+## Important Behavior
+
+- Original photos are never overwritten.
+- Enhanced photos are cache files and are passed to `build_video()` through `enhanced_photos`.
+- Background rendering uses `background_path`, `photo_layout`, `photo_scale`, and `photo_frame`.
+- With a background, photo scenes are rendered as layered static scenes so the background stays stable.
+- OpenAI photo enhance requires a saved API key and explicit user consent because photos are sent to a cloud API.
+- OpenAI image edits use `/v1/images/edits`, multipart field `image`, `response_format=b64_json`, and the model from settings.
+
+## Verification Run
+
+Latest checks run successfully:
+
+```powershell
+python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py video_converter\src\video_converter\converter.py
+$env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src"; python -m pytest tests video_converter\tests
+```
+
+Result: `20 passed`.
+
+Also verified a real ffmpeg smoke render with temporary photos/background. It produced an MP4 in `%TEMP%`.

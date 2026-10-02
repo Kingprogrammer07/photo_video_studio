@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Large source media dropped in this folder for local testing
+*.avi
+*.mp4
+*.mkv
+*.mov
+*.webm

@@ -1,0 +1,229 @@
+"""Photo enhancement helpers for Photo Video Studio."""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import mimetypes
+import os
+import ssl
+import urllib.error
+import urllib.request
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+
+import pvs_storage
+
+
+@dataclass(frozen=True)
+class EnhanceSettings:
+    brightness: float = 1.0
+    contrast: float = 1.08
+    saturation: float = 1.12
+    warmth: float = 0.08
+    sharpness: float = 1.25
+    denoise: float = 0.12
+    upscale: str = "auto"
+    face_restore: bool = True
+
+    def normalized(self) -> dict[str, Any]:
+        data = asdict(self)
+        for key in ("brightness", "contrast", "saturation", "warmth", "sharpness", "denoise"):
+            data[key] = round(float(data[key]), 4)
+        data["face_restore"] = bool(data["face_restore"])
+        data["upscale"] = str(data["upscale"])
+        return data
+
+
+def cache_key(path: str | os.PathLike[str], settings: EnhanceSettings, provider: str, model: str) -> str:
+    p = Path(path)
+    try:
+        stat = p.stat()
+        stamp = f"{p.resolve()}:{stat.st_mtime_ns}:{stat.st_size}"
+    except OSError:
+        stamp = str(p)
+    payload = {
+        "source": stamp,
+        "settings": settings.normalized(),
+        "provider": provider,
+        "model": model,
+        "v": 2,
+    }
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:24]
+
+
+def cache_path(
+    path: str | os.PathLike[str], settings: EnhanceSettings, provider: str, model: str
+) -> Path:
+    pvs_storage.ensure_dirs()
+    return pvs_storage.ai_cache_dir() / f"{cache_key(path, settings, provider, model)}.jpg"
+
+
+def _target_edge(im: Image.Image, upscale: str) -> int | None:
+    mode = (upscale or "auto").lower()
+    if mode in ("yo'q", "yoq", "none", "original"):
+        return None
+    if mode == "hd":
+        return 1920
+    if mode in ("2k", "1440p"):
+        return 2560
+    if mode in ("4k", "2160p"):
+        return 3840
+    if mode == "auto":
+        longest = max(im.size)
+        if longest < 1200:
+            return min(1920, longest * 2)
+        if longest < 1900:
+            return 1920
+    return None
+
+
+def _resize_for_target(im: Image.Image, target_edge: int | None) -> Image.Image:
+    if not target_edge:
+        return im
+    longest = max(im.size)
+    if longest >= target_edge:
+        return im
+    scale = min(target_edge / longest, 2.5)
+    size = (max(1, int(im.width * scale)), max(1, int(im.height * scale)))
+    return im.resize(size, Image.Resampling.LANCZOS)
+
+
+def _apply_warmth(im: Image.Image, amount: float) -> Image.Image:
+    if abs(amount) < 0.001:
+        return im
+    a = np.asarray(im).astype(np.float32)
+    a[..., 0] *= 1.0 + amount * 0.18
+    a[..., 2] *= 1.0 - amount * 0.16
+    a[..., 1] *= 1.0 + max(amount, 0) * 0.04
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), "RGB")
+
+
+def enhance_local(
+    input_path: str | os.PathLike[str],
+    output_path: str | os.PathLike[str],
+    settings: EnhanceSettings,
+) -> Path:
+    """Enhance a photo locally without touching the original file."""
+    im = ImageOps.exif_transpose(Image.open(input_path)).convert("RGB")
+    im = _resize_for_target(im, _target_edge(im, settings.upscale))
+
+    if settings.denoise > 0.02:
+        radius = 3 if settings.denoise >= 0.35 else 1
+        im = im.filter(ImageFilter.MedianFilter(size=radius * 2 + 1))
+
+    im = ImageEnhance.Brightness(im).enhance(max(0.2, settings.brightness))
+    im = ImageEnhance.Contrast(im).enhance(max(0.2, settings.contrast))
+    im = ImageEnhance.Color(im).enhance(max(0.0, settings.saturation))
+    im = _apply_warmth(im, settings.warmth)
+
+    if settings.face_restore:
+        im = im.filter(ImageFilter.SMOOTH_MORE).filter(ImageFilter.DETAIL)
+
+    sharp = max(0.0, settings.sharpness)
+    im = ImageEnhance.Sharpness(im).enhance(sharp)
+    if sharp > 1.05:
+        percent = int(min(220, 80 + (sharp - 1.0) * 90))
+        im = im.filter(ImageFilter.UnsharpMask(radius=1.4, percent=percent, threshold=3))
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    im.save(out, quality=94, subsampling=1, optimize=True)
+    return out
+
+
+def _multipart_body(fields: dict[str, str], files: list[tuple[str, Path]]) -> tuple[bytes, str]:
+    boundary = "----PhotoVideoStudioBoundary" + hashlib.sha1(os.urandom(16)).hexdigest()
+    chunks: list[bytes] = []
+    for name, value in fields.items():
+        chunks.append(f"--{boundary}\r\n".encode())
+        chunks.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
+        chunks.append(str(value).encode("utf-8"))
+        chunks.append(b"\r\n")
+    for name, path in files:
+        mime = mimetypes.guess_type(path.name)[0] or "image/jpeg"
+        chunks.append(f"--{boundary}\r\n".encode())
+        chunks.append(
+            f'Content-Disposition: form-data; name="{name}"; filename="{path.name}"\r\n'.encode()
+        )
+        chunks.append(f"Content-Type: {mime}\r\n\r\n".encode())
+        chunks.append(path.read_bytes())
+        chunks.append(b"\r\n")
+    chunks.append(f"--{boundary}--\r\n".encode())
+    return b"".join(chunks), boundary
+
+
+def openai_enhance(
+    input_path: str | os.PathLike[str],
+    output_path: str | os.PathLike[str],
+    api_key: str,
+    *,
+    model: str = "gpt-image-2.5-sunburst",
+    quality: str = "medium",
+) -> Path:
+    """Use OpenAI image editing to enhance a photo while preserving people."""
+    if not api_key.strip():
+        raise RuntimeError("OpenAI API key kiritilmagan.")
+
+    prompt = (
+        "Enhance this family/photo for a respectful slideshow video. Preserve every "
+        "person's identity, face, clothing, pose, background, and composition. Improve "
+        "exposure, natural color, contrast, sharpness, and mild noise. Upscale only if "
+        "needed. Do not add, remove, or replace people or objects."
+    )
+    fields = {
+        "model": model,
+        "prompt": prompt,
+        "quality": quality,
+        "size": "auto",
+        "output_format": "jpeg",
+        "response_format": "b64_json",
+    }
+    body, boundary = _multipart_body(fields, [("image", Path(input_path))])
+    request = urllib.request.Request(
+        "https://api.openai.com/v1/images/edits",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key.strip()}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=180, context=ssl.create_default_context()) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI xatosi: {exc.code}. {detail[:500]}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"OpenAI bilan bog'lanib bo'lmadi: {exc}") from exc
+
+    data = payload.get("data") or []
+    b64 = data[0].get("b64_json") if data and isinstance(data[0], dict) else None
+    if not b64:
+        raise RuntimeError("OpenAI natijasida rasm ma'lumoti kelmadi.")
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(base64.b64decode(b64))
+    return out
+
+
+def test_openai_key(api_key: str) -> bool:
+    if not api_key.strip():
+        return False
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/models",
+        headers={"Authorization": f"Bearer {api_key.strip()}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20, context=ssl.create_default_context()) as resp:
+            return 200 <= resp.status < 300
+    except Exception:
+        return False

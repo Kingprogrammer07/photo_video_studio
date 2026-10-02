@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# Virtual muhit
+.venv/
+venv/
+env/
+ENV/
+
+# Ishchi / vaqtinchalik fayllar
+_work/
+pvs_*/
+*.tmp
+*.log
+_applog.txt
+_diag.bat
+_fixpip.bat
+_repro*.bat
+_repro*_out.txt
+_git_backup/
+
+# Chiqish videolari
+output/*.mp4
+output/*.mkv
+output/*.mov
+output/*.avi
+output/*.webm
+output/*.gif
+output/*.mp3
+output/*.wav
+*_namuna.mp4
+
+# vNext runtime data (kept in AppData, never in repo)
+settings.json
+backgrounds/
+templates/
+cache/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Eslatma: fonts/ va wheels/ SAQLANADI (offline ishlashi uchun kerak).
