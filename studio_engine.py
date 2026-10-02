@@ -27,6 +27,47 @@ TRANSITIONS = ["auto","fade","fadeblack","fadewhite","slide","push","wipe","circ
 TRANS_UZ = {"auto":"Avto","fade":"Fade","fadeblack":"Qoraga","fadewhite":"Oqqa","slide":"Slide","push":"Push",
             "wipe":"Wipe","circle":"Doira","radial":"Radial","pixelize":"Piksel","blur":"Blur","dissolve":"Erish","diagonal":"Diagonal"}
 KB_LEVELS = {"subtle": 0.08, "normal": 0.15, "strong": 0.24}
+MOTION_PRESETS = [
+    "auto",
+    "still",
+    "zoom_in",
+    "zoom_out",
+    "tiny_to_big",
+    "dramatic_zoom",
+    "left_to_center",
+    "right_to_center",
+    "slow_pan_left",
+    "slow_pan_right",
+    "bottom_to_center",
+]
+MOTION_UZ = {
+    "auto": "Avto",
+    "still": "Harakatsiz",
+    "zoom_in": "Yaqinlashish",
+    "zoom_out": "Uzoqlashish",
+    "tiny_to_big": "Kichikdan katta",
+    "dramatic_zoom": "Kuchli zoom",
+    "left_to_center": "Chapdan markazga",
+    "right_to_center": "O'ngdan markazga",
+    "slow_pan_left": "Sekin chapga",
+    "slow_pan_right": "Sekin o'ngga",
+    "bottom_to_center": "Pastdan markazga",
+}
+
+def normalize_motion_preset(preset):
+    preset = (preset or "auto").lower()
+    return preset if preset in MOTION_PRESETS else "auto"
+
+def resolve_photo_durations(count, default_duration, overrides=None):
+    result = []
+    overrides = list(overrides or [])
+    for idx in range(count):
+        try:
+            value = float(overrides[idx])
+        except Exception:
+            value = float(default_duration)
+        result.append(max(0.4, value))
+    return result
 
 _CAND = {
  "script":  ["chancery.pfb","C:/Windows/Fonts/GABRIOLA.TTF","/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf"],
@@ -137,6 +178,48 @@ def _paste_with_round(base,photo,x,y,radius):
     mask=Image.new("L",photo.size,0)
     d=ImageDraw.Draw(mask); d.rounded_rectangle([0,0,photo.width-1,photo.height-1],radius=radius,fill=255)
     base.paste(photo,(x,y),mask)
+
+def _motion_spec(preset,i=0,amt=0.15,W=1920,H=1080):
+    preset=normalize_motion_preset(preset)
+    if preset=="auto":
+        zdir,dx,dy=_kb(i)
+        if zdir=="out": ss,es=1.08+amt,1.02
+        else: ss,es=1.02,1.08+amt
+        return dict(preset=preset,start_scale=ss,end_scale=es,start_dx=-dx*W*0.04,end_dx=dx*W*0.04,start_dy=-dy*H*0.035,end_dy=dy*H*0.035)
+    if preset=="still": return dict(preset=preset,start_scale=1.0,end_scale=1.0,start_dx=0,end_dx=0,start_dy=0,end_dy=0)
+    if preset=="zoom_in": return dict(preset=preset,start_scale=0.92,end_scale=1.15,start_dx=0,end_dx=0,start_dy=0,end_dy=0)
+    if preset=="zoom_out": return dict(preset=preset,start_scale=1.15,end_scale=0.96,start_dx=0,end_dx=0,start_dy=0,end_dy=0)
+    if preset=="tiny_to_big": return dict(preset=preset,start_scale=0.20,end_scale=1.15,start_dx=0,end_dx=0,start_dy=0,end_dy=0)
+    if preset=="dramatic_zoom": return dict(preset=preset,start_scale=0.35,end_scale=1.50,start_dx=0,end_dx=0,start_dy=0,end_dy=0)
+    if preset=="left_to_center": return dict(preset=preset,start_scale=0.90,end_scale=1.18,start_dx=-W*0.12,end_dx=0,start_dy=0,end_dy=0)
+    if preset=="right_to_center": return dict(preset=preset,start_scale=0.90,end_scale=1.18,start_dx=W*0.12,end_dx=0,start_dy=0,end_dy=0)
+    if preset=="slow_pan_left": return dict(preset=preset,start_scale=1.12,end_scale=1.12,start_dx=W*0.06,end_dx=-W*0.06,start_dy=0,end_dy=0)
+    if preset=="slow_pan_right": return dict(preset=preset,start_scale=1.12,end_scale=1.12,start_dx=-W*0.06,end_dx=W*0.06,start_dy=0,end_dy=0)
+    if preset=="bottom_to_center": return dict(preset=preset,start_scale=0.90,end_scale=1.15,start_dx=0,end_dx=0,start_dy=H*0.10,end_dy=0)
+    return _motion_spec("auto",i,amt,W,H)
+
+def _photo_panel(photo,box,frame=None):
+    frame=frame or {}
+    ph=_fit_in_box(photo,box).convert("RGBA")
+    border=bool(frame.get("border",True)); shadow=bool(frame.get("shadow",True))
+    radius=int(frame.get("radius",0)); bw=int(frame.get("border_width",max(6,ph.height*0.018))) if border else 0
+    pad=max(36,bw+18) if shadow else max(10,bw+4)
+    panel=Image.new("RGBA",(ph.width+bw*2+pad*2,ph.height+bw*2+pad*2),(0,0,0,0))
+    ox=pad+bw; oy=pad+bw
+    if shadow:
+        sh=Image.new("RGBA",(ph.width+bw*2+40,ph.height+bw*2+40),(0,0,0,0))
+        sd=ImageDraw.Draw(sh); sd.rounded_rectangle([20,20,20+ph.width+bw*2,20+ph.height+bw*2],radius=radius+bw+6,fill=(0,0,0,150))
+        sh=sh.filter(ImageFilter.GaussianBlur(max(8,int(ph.height*0.025))))
+        panel.alpha_composite(sh,(pad-20,pad-10))
+    if border:
+        bg=Image.new("RGBA",(ph.width+bw*2,ph.height+bw*2),(255,255,255,255))
+        if radius>0:
+            mask=Image.new("L",bg.size,0)
+            d=ImageDraw.Draw(mask); d.rounded_rectangle([0,0,bg.width-1,bg.height-1],radius=radius+bw,fill=255)
+            cut=Image.new("RGBA",bg.size,(0,0,0,0)); cut.paste(bg,(0,0),mask); bg=cut
+        panel.alpha_composite(bg,(pad,pad))
+    _paste_with_round(panel,ph,ox,oy,radius)
+    return panel
 
 def compose_background_scene(photo,bg_path,W,H,layout="center",scale=0.66,frame=None):
     bg=_cover(Image.open(bg_path),W,H).convert("RGBA")
@@ -294,17 +377,26 @@ def _kb(i):
     seq=[("in",1,-0.2),("out",-1,0.2),("in",0,-1),("out",1,0.2),("in",-1,0),("out",0,-0.3),
          ("in",1,0.3),("out",-1,0),("in",0,-1),("out",1,0.3),("in",-1,0)]
     return seq[i%len(seq)]
-def _vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain):
+def _vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain,motion=None,i=0):
     N=int(dur*fps)
-    z=f"'min(1.02+{amt/N:.6f}*on,{1.02+amt:.3f})'" if zdir=="in" else f"'max({1.02+amt:.3f}-{amt/N:.6f}*on,1.02)'"
     ax=0.95*dx; ay=0.7*dy; half=N/2; sc=max(3840,int(W*1.5))
-    x=f"'iw/2-(iw/zoom/2)+{ax:.3f}*(on-{half:.1f})'"; y=f"'ih/2-(ih/zoom/2)+{ay:.3f}*(on-{half:.1f})'"
+    if motion and motion!="auto":
+        spec=_motion_spec(motion,i,amt,W,H)
+        ss=max(1.0,float(spec["start_scale"])); es=max(1.0,float(spec["end_scale"]))
+        z=f"'{ss:.4f}+({es-ss:.6f})*on/{max(1,N-1)}'"
+        sdx=float(spec["start_dx"])*sc/max(1,W); edx=float(spec["end_dx"])*sc/max(1,W)
+        sdy=float(spec["start_dy"])*sc/max(1,H); edy=float(spec["end_dy"])*sc/max(1,H)
+        x=f"'iw/2-(iw/zoom/2)+({sdx:.3f}+({edx-sdx:.3f})*on/{max(1,N-1)})'"
+        y=f"'ih/2-(ih/zoom/2)+({sdy:.3f}+({edy-sdy:.3f})*on/{max(1,N-1)})'"
+    else:
+        z=f"'min(1.02+{amt/N:.6f}*on,{1.02+amt:.3f})'" if zdir=="in" else f"'max({1.02+amt:.3f}-{amt/N:.6f}*on,1.02)'"
+        x=f"'iw/2-(iw/zoom/2)+{ax:.3f}*(on-{half:.1f})'"; y=f"'ih/2-(ih/zoom/2)+{ay:.3f}*(on-{half:.1f})'"
     base=f"scale={sc}:-1,zoompan=z={z}:d={N}:x={x}:y={y}:s={W}x{H}:fps={fps}"
     if vig: base+=",vignette=PI/5.0"
     if grain: base+=",noise=alls=6:allf=t"
     return base,N
-def render_scene(gp,cap_png,dur,i,W,H,fps,vig,amt,grain,bloom,out,cancel_event=None):
-    zdir,dx,dy=_kb(i); base,N=_vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain)
+def render_scene(gp,cap_png,dur,i,W,H,fps,vig,amt,grain,bloom,out,cancel_event=None,motion=None):
+    zdir,dx,dy=_kb(i); base,N=_vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain,motion,i)
     parts=[f"[0:v]{base}[v0]"]; last="v0"
     if bloom:
         s=max(6,int(H*0.014))
@@ -333,6 +425,40 @@ def render_static_scene(gp,cap_png,dur,i,W,H,fps,grain,bloom,out,cancel_event=No
         inp+=["-loop","1","-t",str(dur),"-i",cap_png]
         fade_out=max(0.0,dur-1.0)
         parts.append(f"[1:v]fade=t=in:st=0.5:d=0.6:alpha=1,fade=t=out:st={fade_out:.2f}:d=0.6:alpha=1[c]")
+        parts.append(f"[{last}][c]overlay=0:0[o]"); last="o"
+    _run(["ffmpeg","-y",*inp,"-filter_complex",";".join(parts),"-map",f"[{last}]","-frames:v",str(N),"-r",str(fps),
+          "-c:v","libx264","-crf","12","-preset","veryfast","-pix_fmt","yuv420p",out], cancel_event)
+
+def render_background_motion_scene(gp,bg_path,cap_png,dur,i,W,H,fps,grain,bloom,out,layout,scale,frame,motion=None,cancel_event=None):
+    bg=_cover(Image.open(bg_path),W,H).convert("RGB")
+    bg_tmp=out+".bg.jpg"; panel_tmp=out+".panel.png"
+    bg.save(bg_tmp,quality=94)
+    panel=_photo_panel(Image.open(gp),_photo_box(W,H,layout,scale),frame)
+    panel.save(panel_tmp)
+    N=int(dur*fps); spec=_motion_spec(motion or "auto",i,0.15,W,H)
+    ss,es=float(spec["start_scale"]),float(spec["end_scale"])
+    sdx,edx=float(spec["start_dx"]),float(spec["end_dx"])
+    sdy,edy=float(spec["start_dy"]),float(spec["end_dy"])
+    cx,cy=W/2,H/2
+    t=f"min(t\\,{dur:.4f})/{max(0.001,dur):.4f}"
+    parts=[f"[0:v]scale={W}:{H},setsar=1,fps={fps}"]
+    if grain: parts[0]+=",noise=alls=4:allf=t"
+    parts[0]+="[bg0]"
+    last="bg0"; inp=["-loop","1","-t",str(dur),"-i",bg_tmp,"-loop","1","-t",str(dur),"-i",panel_tmp]
+    if bloom:
+        s=max(6,int(H*0.014))
+        parts.append(f"[bg0]split[b0][b1];[b1]gblur=sigma={s}[b2];[b0][b2]blend=all_mode=screen:all_opacity=0.18[bg1]")
+        last="bg1"
+    scale_expr=f"{ss:.5f}+({es-ss:.5f})*{t}"
+    x_expr=f"{cx:.3f}-overlay_w/2+({sdx:.3f}+({edx-sdx:.3f})*{t})"
+    y_expr=f"{cy:.3f}-overlay_h/2+({sdy:.3f}+({edy-sdy:.3f})*{t})"
+    parts.append(f"[1:v]format=rgba,scale=w='iw*({scale_expr})':h='ih*({scale_expr})':eval=frame[p]")
+    parts.append(f"[{last}][p]overlay=x='{x_expr}':y='{y_expr}':eval=frame[o0]")
+    last="o0"
+    if cap_png:
+        inp+=["-loop","1","-t",str(dur),"-i",cap_png]
+        fade_out=max(0.0,dur-1.0)
+        parts.append(f"[2:v]fade=t=in:st=0.5:d=0.6:alpha=1,fade=t=out:st={fade_out:.2f}:d=0.6:alpha=1[c]")
         parts.append(f"[{last}][c]overlay=0:0[o]"); last="o"
     _run(["ffmpeg","-y",*inp,"-filter_complex",";".join(parts),"-map",f"[{last}]","-frames:v",str(N),"-r",str(fps),
           "-c:v","libx264","-crf","12","-preset","veryfast","-pix_fmt","yuv420p",out], cancel_event)
@@ -380,11 +506,23 @@ def build_video(config, progress=lambda p,m: None, cancel_event=None):
     ttype=config.get("transition_type","auto"); ttype=st["transition"] if ttype in ("auto",None,"") else ttype
     photos=config["photos"]; caps=config.get("captions",{}); out=config["output"]
     enhanced=config.get("enhanced_photos") or {}
+    pdurs=resolve_photo_durations(len(photos), PDUR, config.get("photo_durations"))
+    pmotions=list(config.get("photo_motions") or [])
     bg_path=config.get("background_path") or ""
     has_bg=bool(bg_path and os.path.isfile(bg_path))
     playout=config.get("photo_layout","center")
     pscale=float(config.get("photo_scale",0.66))
     pframe=config.get("photo_frame") or {}
+    def _pdur(idx):
+        try:
+            return pdurs[idx]
+        except Exception:
+            return PDUR
+    def _motion(idx):
+        try:
+            return normalize_motion_preset(pmotions[idx])
+        except Exception:
+            return "auto"
     work=tempfile.mkdtemp(prefix="pvs_")
     progress(3,"Rasmlar tayyorlanmoqda...")
     graded=[]
@@ -393,9 +531,7 @@ def build_video(config, progress=lambda p,m: None, cancel_event=None):
         ep=enhanced.get(p) if isinstance(enhanced,dict) else None
         src=ep if ep and os.path.isfile(ep) else p
         g=grade(load_photo(src),gmode)
-        if has_bg:
-            g=compose_background_scene(g,bg_path,W,H,playout,pscale,pframe)
-        else:
+        if not has_bg:
             mx=max(3840,int(W*1.5)); s=mx/max(g.size)
             if s<1: g=g.resize((int(g.size[0]*s),int(g.size[1]*s)),Image.LANCZOS)
         gp=os.path.join(work,f"g{i}.png"); g.save(gp); graded.append(gp)
@@ -414,14 +550,16 @@ def build_video(config, progress=lambda p,m: None, cancel_event=None):
     sclips=[]
     for i,gp in enumerate(graded):
         _check_cancel(cancel_event)
+        dur_i=_pdur(i)
         sc=os.path.join(work,f"s{i}.mkv")
         if has_bg:
-            render_static_scene(gp,cap_png.get(i+1),PDUR,i,W,H,fps,grain,bloom,sc,cancel_event)
+            render_background_motion_scene(gp,bg_path,cap_png.get(i+1),dur_i,i,W,H,fps,grain,bloom,sc,playout,pscale,pframe,_motion(i),cancel_event)
         else:
-            render_scene(gp,cap_png.get(i+1),PDUR,i,W,H,fps,vig,amt,grain,bloom,sc,cancel_event)
+            render_scene(gp,cap_png.get(i+1),dur_i,i,W,H,fps,vig,amt,grain,bloom,sc,cancel_event,_motion(i))
         sclips.append(sc)
         progress(30+int(48*(i+1)/len(graded)),f"Sahna: {i+1}/{len(graded)}")
-    clips=[tclip]+sclips+[oclip]; durs=[TDUR]+[PDUR]*len(sclips)+[ODUR]
+    photo_durs=[_pdur(i) for i in range(len(sclips))]
+    clips=[tclip]+sclips+[oclip]; durs=[TDUR]+photo_durs+[ODUR]
     total=round(sum(durs)-(len(durs)-1)*D,3)
     progress(82,"Musiqa...")
     _check_cancel(cancel_event)

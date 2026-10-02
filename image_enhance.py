@@ -105,32 +105,53 @@ def _apply_warmth(im: Image.Image, amount: float) -> Image.Image:
     return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), "RGB")
 
 
-def enhance_local(
-    input_path: str | os.PathLike[str],
-    output_path: str | os.PathLike[str],
+def enhance_image(
+    image: Image.Image,
     settings: EnhanceSettings,
-) -> Path:
-    """Enhance a photo locally without touching the original file."""
-    im = ImageOps.exif_transpose(Image.open(input_path)).convert("RGB")
-    im = _resize_for_target(im, _target_edge(im, settings.upscale))
+    *,
+    preview_mode: bool = False,
+) -> Image.Image:
+    """Enhance a PIL image in memory.
+
+    preview_mode keeps the operation light enough for live UI feedback; the
+    file-writing wrapper below uses the same pipeline at full quality.
+    """
+    im = ImageOps.exif_transpose(image).convert("RGB")
+    if preview_mode:
+        im.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
+    else:
+        im = _resize_for_target(im, _target_edge(im, settings.upscale))
 
     if settings.denoise > 0.02:
-        radius = 3 if settings.denoise >= 0.35 else 1
-        im = im.filter(ImageFilter.MedianFilter(size=radius * 2 + 1))
+        if preview_mode and settings.denoise < 0.25:
+            pass
+        else:
+            radius = 3 if settings.denoise >= 0.35 and not preview_mode else 1
+            im = im.filter(ImageFilter.MedianFilter(size=radius * 2 + 1))
 
     im = ImageEnhance.Brightness(im).enhance(max(0.2, settings.brightness))
     im = ImageEnhance.Contrast(im).enhance(max(0.2, settings.contrast))
     im = ImageEnhance.Color(im).enhance(max(0.0, settings.saturation))
     im = _apply_warmth(im, settings.warmth)
 
-    if settings.face_restore:
+    if settings.face_restore and not preview_mode:
         im = im.filter(ImageFilter.SMOOTH_MORE).filter(ImageFilter.DETAIL)
 
     sharp = max(0.0, settings.sharpness)
     im = ImageEnhance.Sharpness(im).enhance(sharp)
     if sharp > 1.05:
-        percent = int(min(220, 80 + (sharp - 1.0) * 90))
-        im = im.filter(ImageFilter.UnsharpMask(radius=1.4, percent=percent, threshold=3))
+        percent = int(min(180 if preview_mode else 220, 70 + (sharp - 1.0) * 85))
+        im = im.filter(ImageFilter.UnsharpMask(radius=1.1 if preview_mode else 1.4, percent=percent, threshold=3))
+    return im
+
+
+def enhance_local(
+    input_path: str | os.PathLike[str],
+    output_path: str | os.PathLike[str],
+    settings: EnhanceSettings,
+) -> Path:
+    """Enhance a photo locally without touching the original file."""
+    im = enhance_image(Image.open(input_path), settings, preview_mode=False)
 
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)

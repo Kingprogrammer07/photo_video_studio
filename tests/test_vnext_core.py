@@ -47,6 +47,19 @@ def test_local_enhance_writes_copy_without_touching_original(tmp_path, monkeypat
     assert src.read_bytes() == before
 
 
+def test_enhance_image_preview_is_in_memory(tmp_path):
+    import image_enhance as ai
+
+    src = tmp_path / "photo.jpg"
+    Image.new("RGB", (90, 70), (100, 90, 80)).save(src, quality=90)
+    before = src.read_bytes()
+    with Image.open(src) as im:
+        out = ai.enhance_image(im, ai.EnhanceSettings(upscale="4K"), preview_mode=True)
+    assert out.mode == "RGB"
+    assert max(out.size) <= 1200
+    assert src.read_bytes() == before
+
+
 def test_openai_multipart_uses_image_field(tmp_path):
     import image_enhance as ai
 
@@ -73,6 +86,20 @@ def test_background_scene_composes_expected_size(tmp_path):
         frame={"border": True, "shadow": True},
     )
     assert scene.size == (640, 360)
+
+
+def test_motion_preset_unknown_falls_back_to_auto():
+    import studio_engine as se
+
+    assert se.normalize_motion_preset("left_to_center") == "left_to_center"
+    assert se.normalize_motion_preset("missing") == "auto"
+    assert se._motion_spec("missing", 0)["preset"] == "auto"
+
+
+def test_resolve_photo_durations_uses_overrides_and_minimum():
+    import studio_engine as se
+
+    assert se.resolve_photo_durations(4, 4.5, [6, None, 0.1]) == [6.0, 4.5, 0.4, 4.5]
 
 
 def test_background_and_template_metadata_ops(tmp_path, monkeypatch):

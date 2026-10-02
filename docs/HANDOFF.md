@@ -11,8 +11,8 @@ Photo Video Studio is becoming a simple but powerful Windows desktop studio for 
 ## Current Architecture
 
 - `app.py` is the main CustomTkinter application. It now uses top-level tabs: `Slideshow`, `Fonlar/Shablonlar`, `AI Rasm Studio`, `Video Tools`, and `Sozlamalar`.
-- `studio_engine.py` owns video rendering. It accepts enhanced photo paths and optional background/template layout fields, then renders title card, photo scenes, outro, music, and final MP4 through ffmpeg.
-- `image_enhance.py` owns local photo enhancement, AI cache keys, OpenAI image-edit integration, and OpenAI API key testing.
+- `studio_engine.py` owns video rendering. It accepts enhanced photo paths, background/template layout fields, per-slide durations, and motion preset lists, then renders title card, photo scenes, outro, music, and final MP4 through ffmpeg.
+- `image_enhance.py` owns local photo enhancement, in-memory preview enhancement, AI cache keys, OpenAI image-edit integration, and OpenAI API key testing.
 - `pvs_storage.py` owns AppData folders, settings, background import, template JSON, AI cache paths, and secure API key storage.
 - `starter_pack.py` generates 8 procedural, copyright-safe backgrounds/templates and installs them into AppData once.
 - `connectivity.py`, `updater.py`, `runtime_paths.py`, and `version.py` own online/offline status, GitHub Releases update checks, bundled runtime resource lookup, and app version metadata.
@@ -36,7 +36,11 @@ API keys are not stored in JSON. On Windows, `pvs_storage.py` uses Windows Crede
 - Original photos are never overwritten.
 - Enhanced photos are cache files and are passed to `build_video()` through `enhanced_photos`.
 - Background rendering uses `background_path`, `photo_layout`, `photo_scale`, and `photo_frame`.
-- With a background, photo scenes are rendered as layered static scenes so the background stays stable.
+- With a background, photo scenes are rendered as a stable background plus animated foreground photo/frame layer. Motion presets include `auto`, `still`, `zoom_in`, `zoom_out`, `tiny_to_big`, `dramatic_zoom`, `left_to_center`, `right_to_center`, `slow_pan_left`, `slow_pan_right`, and `bottom_to_center`.
+- `build_video(config)` accepts `photo_durations` and `photo_motions`. Missing or invalid durations fall back to global `photo_duration`; unknown motion presets fall back to `auto`.
+- Slideshow live preview is debounced for speed. The `Aniq ko'rish` button renders a more faithful still frame in a worker thread.
+- AI Professional preview uses `image_enhance.enhance_image(..., preview_mode=True)` in memory and ignores stale slider results.
+- Switching Lotin/Kiril rebuilds the UI but restores selected tab, selected photo, captions, enhanced paths, per-slide durations, and motion controls after idle.
 - Starter pack installation is tracked in `settings.json` with `starter_pack_version`; API keys are never stored there.
 - Background favorites are stored as path strings in `settings.json`; background image files remain under AppData.
 - Slideshow render, AI jobs, and Video Tools conversion all support cancellation. Render cancellation raises `studio_engine.CancelledError`; converter cancellation returns return code `-1`.
@@ -58,9 +62,9 @@ $env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src";
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1 -SkipInstaller
 ```
 
-Result: `26 passed`. PyInstaller onedir build completed and bundled ffmpeg was copied.
+Result: `29 passed`. PyInstaller onedir build completed and bundled ffmpeg was copied.
 
-Also verified a real ffmpeg smoke render with temporary photos/background after cancel-aware ffmpeg changes. It produced an MP4 in `%TEMP%`.
+Also verified real ffmpeg smoke renders with temporary photos/backgrounds after cancel-aware and motion changes. The latest smoke used `left_to_center` foreground motion and per-slide duration, producing an MP4 in `%TEMP%`.
 
 ## Git Status
 

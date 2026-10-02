@@ -26,6 +26,12 @@ Last updated: 2026-10-02
 - Added tests for starter pack install, storage metadata operations, render cancel, converter cancel, and template preview metadata.
 - Added release builder scripts, Inno Setup config, bundled ffmpeg lookup, online/offline status, and GitHub Releases update check/download flow.
 - Verified PyInstaller onedir build with bundled `ffmpeg.exe`; full installer compile still needs Inno Setup installed.
+- Added debounced slideshow preview updates and an `Aniq ko'rish` worker preview button.
+- Reworked AI Professional preview to use in-memory Pillow processing with stale-result protection.
+- Fixed Lotin/Kiril rebuild so selected photos, captions, enhanced paths, tab, and per-slide settings are restored immediately.
+- Added ProShow-style motion presets and layered background rendering where the background stays stable while the photo/frame moves.
+- Added per-slide duration override controls and render support through `photo_durations`.
+- Added tests for in-memory enhance preview, motion fallback, and duration resolution.
 
 ## Next High-Value Tasks
 
@@ -34,6 +40,8 @@ Last updated: 2026-10-02
 - Create first GitHub Release with `scripts\publish_release.ps1`, then test in-app update check against that release.
 - Test drag-and-drop on a machine with `tkinterdnd2` installed.
 - Add Gemini provider adapter after OpenAI flow is stable.
+- Add an advanced keyframe editor for custom motion paths after preset motion is stable.
+- Add a tiny animated preview clip for motion presets, not only a static exact frame.
 - Add user-facing starter template category filters if the template list grows.
 - Add installer or portable EXE packaging test.
 - Add UI smoke tests if a Windows GUI test approach is chosen.
@@ -42,7 +50,7 @@ Last updated: 2026-10-02
 
 - OpenAI enhance is wired through the Images edit endpoint but still needs real API-key/manual validation with real photos.
 - Local “face-safe restore” is conservative Pillow smoothing/detail, not a dedicated face restoration model.
-- Background scenes currently keep the background stable; Ken Burns motion is disabled for layered background scenes.
+- Background scenes support foreground photo/frame motion while the background stays stable; fonsiz scenes still use the existing zoompan-style full-photo pipeline.
 - Drag-and-drop is optional and only activates when `tkinterdnd2` is present; the dependency is intentionally not added to `requirements.txt`.
 - First releases are unsigned, so Windows SmartScreen may show a warning until code signing is added.
 - Full installer build was not run in this pass because Inno Setup (`iscc`) is not installed on PATH.

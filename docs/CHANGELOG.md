@@ -12,6 +12,11 @@
 - Added `docs/OPENAI_MANUAL_TEST.md` for real API-key validation.
 - Added Windows release packaging flow with PyInstaller onedir build, bundled `ffmpeg.exe`, Inno Setup config, and GitHub Releases publish helper.
 - Added app version metadata, online/offline status indicator, OpenAI offline warnings, and manual update check/download through GitHub Releases.
+- Added fast debounced slideshow preview updates plus an `Aniq ko'rish` button for heavier preview frames.
+- Added in-memory AI Professional preview rendering through `enhance_image(..., preview_mode=True)` so sliders no longer write temp JPGs on every move.
+- Added ProShow-style motion presets: still, zoom in/out, tiny-to-big, dramatic zoom, side/bottom-to-center, and slow pans.
+- Added per-slide duration overrides with row badges such as `[6.0s]`.
+- Added `photo_durations` and `photo_motions` render config support.
 - Created vNext tabbed app shell with `Slideshow`, `Fonlar/Shablonlar`, `AI Rasm Studio`, `Video Tools`, and `Sozlamalar`.
 - Added AppData-backed settings, custom background library, template JSON storage, and AI cache directories.
 - Added secure API key storage using Windows Credential Manager, with optional keyring fallback.
@@ -31,6 +36,8 @@
 - Made `video_converter.converter.convert()` cancel-aware and return `ConversionResult(False, -1, "Bekor qilindi")` on cancellation.
 - Updated ffmpeg discovery to prefer bundled installer/runtime paths before falling back to system `PATH`.
 - Replaced old onefile `build_exe.bat` with a wrapper around `scripts/build_release.ps1`.
+- Background scenes now render as stable backgrounds with an animated foreground photo/frame layer.
+- Language switching now snapshots and restores selected photos, captions, AI paths, per-slide settings, selected tab, and preview state after UI rebuild.
 - Replaced the old single-screen `app.py` with a larger tabbed CustomTkinter app.
 - Extended `studio_engine.build_video()` to accept background and enhanced-photo config fields.
 - Updated `build_exe.bat` hidden imports for new modules.
@@ -44,7 +51,8 @@
 
 - `python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py starter_pack.py connectivity.py runtime_paths.py updater.py version.py video_converter\src\video_converter\converter.py`
 - `$env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src"; python -m pytest tests video_converter\tests`
-- Result: `26 passed`.
+- Result: `29 passed`.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1 -SkipInstaller`
 - Result: PyInstaller onedir build completed; `dist\PhotoVideoStudio\PhotoVideoStudio.exe` and `dist\PhotoVideoStudio\ffmpeg\bin\ffmpeg.exe` exist.
 - Real ffmpeg smoke render with temporary images/background completed successfully after cancel-aware ffmpeg changes.
+- Real ffmpeg smoke render with temporary images/background completed successfully for `left_to_center` motion and per-slide duration.
