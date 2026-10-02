@@ -17,16 +17,20 @@ Last updated: 2026-10-02
 - Corrected OpenAI image edit multipart payload to use the `image` field and request `b64_json`.
 - Added repo hygiene rules for local diagnostics, runtime data, and generated media.
 - Created public GitHub repository and pushed `main`: https://github.com/Kingprogrammer07/photo_video_studio
+- Added Polish Pack starter pack with 8 procedural backgrounds/templates and idempotent AppData install.
+- Added background/template preview, rename, delete, favorite, and starter-pack reinstall controls.
+- Added optional drag-and-drop photo import with safe fallback to the file picker.
+- Added cancel support for render, AI enhancement jobs, and Video Tools conversion.
+- Replaced AI before/after slider preview with a draggable Canvas divider.
+- Added manual OpenAI real-key validation checklist.
+- Added tests for starter pack install, storage metadata operations, render cancel, converter cancel, and template preview metadata.
 
 ## Next High-Value Tasks
 
-- Add drag-and-drop photo import.
-- Add built-in starter background/template packs.
-- Add manual template preview thumbnails.
-- Add background delete/rename/favorite controls.
-- Add cancel button for render and AI batch work.
-- Improve AI compare view with a real draggable before/after divider.
-- Add Gemini provider adapter after OpenAI flow is stable and real OpenAI photo edits are manually validated.
+- Manually validate OpenAI enhance with a real API key using `docs/OPENAI_MANUAL_TEST.md`.
+- Test drag-and-drop on a machine with `tkinterdnd2` installed.
+- Add Gemini provider adapter after OpenAI flow is stable.
+- Add user-facing starter template category filters if the template list grows.
 - Add installer or portable EXE packaging test.
 - Add UI smoke tests if a Windows GUI test approach is chosen.
 
@@ -35,4 +39,5 @@ Last updated: 2026-10-02
 - OpenAI enhance is wired through the Images edit endpoint but still needs real API-key/manual validation with real photos.
 - Local “face-safe restore” is conservative Pillow smoothing/detail, not a dedicated face restoration model.
 - Background scenes currently keep the background stable; Ken Burns motion is disabled for layered background scenes.
+- Drag-and-drop is optional and only activates when `tkinterdnd2` is present; the dependency is intentionally not added to `requirements.txt`.
 - GitHub repo setup is complete. Future work should commit and push regularly.

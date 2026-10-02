@@ -18,7 +18,7 @@ import tkinter as tk
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import customtkinter as ctk
-    from PIL import Image, ImageOps
+    from PIL import Image, ImageOps, ImageTk
 except Exception:
     r = tk.Tk()
     r.withdraw()
@@ -27,7 +27,25 @@ except Exception:
 
 import image_enhance as AI
 import pvs_storage as Store
+import starter_pack
 import studio_engine as SE
+
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+except Exception:
+    DND_FILES = None
+    TkinterDnD = None
+
+if TkinterDnD is not None:
+    try:
+        class CTkDnD(ctk.CTk, TkinterDnD.DnDWrapper):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.TkdndVersion = TkinterDnD._require(self)
+    except Exception:
+        CTkDnD = None
+else:
+    CTkDnD = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VC_SRC = os.path.join(HERE, "video_converter", "src")
@@ -88,6 +106,7 @@ def lat2cyr(s: str) -> str:
 class App:
     def __init__(self, root: ctk.CTk):
         Store.ensure_dirs()
+        starter_pack.install_if_needed()
         self.root = root
         root.title("Photo Video Studio")
         root.geometry("1260x790")
@@ -99,11 +118,16 @@ class App:
         self.cur: int | None = None
         self.q: queue.Queue = queue.Queue()
         self.busy = False
+        self.cancel_event = threading.Event()
+        self.vc_cancel_event = threading.Event()
         self.row_frames: list = []
         self.row_txt: list = []
         self._imgs: list = []
         self._prev_img = None
         self._ai_img = None
+        self._ai_tk = None
+        self._ai_original_pil = None
+        self._ai_enhanced_pil = None
         self._blank = None
 
         self.sel = {
@@ -203,6 +227,7 @@ class App:
         self._rebuild()
         self._refresh_backgrounds()
         self._refresh_templates()
+        self._try_enable_drag_drop()
 
     def _build_bottom(self) -> None:
         self.bottom = ctk.CTkFrame(self.root, fg_color="transparent")
@@ -213,6 +238,8 @@ class App:
         self.prev_btn.pack(side="left", padx=8)
         self.open_btn = ctk.CTkButton(self.bottom, text=self.t("Papka"), width=90, height=50, font=self.F, fg_color="#5a5a5a", command=self.open_output, state="disabled")
         self.open_btn.pack(side="left", padx=(0, 8))
+        self.cancel_btn = ctk.CTkButton(self.bottom, text=self.t("Bekor qilish"), width=130, height=50, font=self.FB, fg_color="#8a3c3c", hover_color="#703030", command=self.cancel_current_job, state="disabled")
+        self.cancel_btn.pack(side="left", padx=(0, 8))
         self.pbar = ctk.CTkProgressBar(self.bottom, height=16)
         self.pbar.set(0)
         self.pbar.pack(side="left", fill="x", expand=True, padx=12)
@@ -232,6 +259,8 @@ class App:
         left.pack(side="left", fill="both", expand=True, padx=(0, 12))
         ctk.CTkLabel(left, text=self.t("1) Rasmlaringiz"), font=self.FH).pack(anchor="w", padx=12, pady=(12, 2))
         ctk.CTkLabel(left, text=self.t("Bosib tanlang, tartiblang, caption yozing"), text_color="#8a8a8a", font=self.F).pack(anchor="w", padx=12)
+        self.dnd_status = ctk.CTkLabel(left, text=self.t("Rasm qo'shish tugmasi orqali tanlang."), text_color="#8a8a8a", font=self.F)
+        self.dnd_status.pack(anchor="w", padx=12, pady=(2, 0))
         self.strip = ctk.CTkScrollableFrame(left, height=190)
         self.strip.pack(fill="both", expand=True, padx=10, pady=(6, 0))
         pb = ctk.CTkFrame(left, fg_color="transparent")
@@ -340,6 +369,7 @@ class App:
         top.pack(fill="x", padx=10, pady=10)
         ctk.CTkButton(top, text=self.t("Yangi background qo'shish"), height=42, font=self.FB, command=self.import_background).pack(side="left")
         ctk.CTkButton(top, text=self.t("Fonsiz ishlatish"), height=42, width=150, fg_color="#5a5a5a", command=self.clear_background).pack(side="left", padx=8)
+        ctk.CTkButton(top, text=self.t("Starter packni qayta o'rnatish"), height=42, width=210, fg_color="#5a5a5a", command=self.reinstall_starter_pack).pack(side="left")
         ctk.CTkButton(top, text=self.t("Shablon sifatida saqlash"), height=42, command=self.save_template_prompt).pack(side="right")
         self.bg_current = ctk.CTkLabel(parent, text="", font=self.FB, anchor="w")
         self.bg_current.pack(fill="x", padx=12)
@@ -357,10 +387,12 @@ class App:
         right.pack(side="right", fill="y", padx=(6, 10), pady=10)
         self.ai_title = ctk.CTkLabel(left, text=self.t("Rasm tanlang va AI/Professional sozlashni qo'llang"), font=self.FH)
         self.ai_title.pack(anchor="w", padx=12, pady=(12, 4))
-        self.ai_preview = ctk.CTkLabel(left, text=self.t("Oldin / Keyin ko'rinish"), height=420, fg_color=("#dddddf", "#232327"), corner_radius=8, font=self.F)
-        self.ai_preview.pack(fill="both", expand=True, padx=12, pady=8)
-        ctk.CTkLabel(left, text=self.t("Oldin/Keyin slider"), font=self.F).pack(anchor="w", padx=12)
-        ctk.CTkSlider(left, from_=0, to=100, variable=self.ai_compare, command=lambda _v: self._update_ai_compare()).pack(fill="x", padx=12, pady=(2, 12))
+        self.ai_canvas = tk.Canvas(left, height=430, bd=0, highlightthickness=0, bg="#232327")
+        self.ai_canvas.pack(fill="both", expand=True, padx=12, pady=8)
+        self.ai_canvas.bind("<Configure>", lambda _e: self._draw_ai_compare())
+        self.ai_canvas.bind("<Button-1>", self._drag_ai_compare)
+        self.ai_canvas.bind("<B1-Motion>", self._drag_ai_compare)
+        ctk.CTkLabel(left, text=self.t("Chiziqni ushlab suring: chap tomonda oldingi, o'ng tomonda keyingi natija."), text_color="#8a8a8a", font=self.F).pack(anchor="w", padx=12, pady=(0, 12))
 
         def slider(label, var, lo, hi):
             ctk.CTkLabel(right, text=self.t(label), font=self.F, anchor="w").pack(fill="x", padx=8, pady=(10, 0))
@@ -404,7 +436,9 @@ class App:
         self.vc_status = ctk.CTkLabel(frame, text=self.t("Tayyor"), font=self.FB, anchor="w")
         self.vc_status.pack(fill="x", padx=14)
         self.vc_button = ctk.CTkButton(frame, text=self.t("Konvertatsiya qilish"), height=48, font=self.FB, command=self.vc_start)
-        self.vc_button.pack(fill="x", padx=14, pady=18)
+        self.vc_button.pack(fill="x", padx=14, pady=(18, 6))
+        self.vc_cancel_btn = ctk.CTkButton(frame, text=self.t("Bekor qilish"), height=42, font=self.FB, fg_color="#8a3c3c", hover_color="#703030", command=self.cancel_current_job, state="disabled")
+        self.vc_cancel_btn.pack(fill="x", padx=14, pady=(0, 18))
 
     def _vc_menu(self, parent, label, var, values, col):
         cell = ctk.CTkFrame(parent, fg_color="transparent")
@@ -454,9 +488,37 @@ class App:
         if p and SE.set_ffmpeg(p):
             self._check_ffmpeg()
 
+    def _try_enable_drag_drop(self):
+        if not hasattr(self, "strip") or DND_FILES is None:
+            if hasattr(self, "dnd_status"):
+                self.dnd_status.configure(text=self.t("Rasm qo'shish tugmasi orqali tanlang."))
+            return
+        try:
+            for widget in (self.root, self.strip):
+                if hasattr(widget, "drop_target_register"):
+                    widget.drop_target_register(DND_FILES)
+                    widget.dnd_bind("<<Drop>>", self._handle_drop)
+            if hasattr(self, "dnd_status"):
+                self.dnd_status.configure(text=self.t("Rasmlarni shu oynaga sudrab tashlashingiz mumkin."))
+        except Exception:
+            if hasattr(self, "dnd_status"):
+                self.dnd_status.configure(text=self.t("Drag/drop mavjud emas, tugma orqali tanlang."))
+
+    def _handle_drop(self, event):
+        try:
+            paths = list(self.root.tk.splitlist(event.data))
+        except Exception:
+            paths = str(event.data).split()
+        self.add_photo_paths(paths)
+
     def add_photos(self):
         files = filedialog.askopenfilenames(title=self.t("Rasmlar"), filetypes=[("Rasm", "*.jpg *.jpeg *.png *.webp *.bmp"), ("*", "*.*")])
-        for p in files:
+        self.add_photo_paths(files)
+
+    def add_photo_paths(self, paths):
+        added = 0
+        for p in paths:
+            p = str(p).strip("{}")
             if not p.lower().endswith(IMG_EXT):
                 continue
             try:
@@ -468,9 +530,12 @@ class App:
             except Exception:
                 continue
             self.items.append({"path": p, "caption": "", "tpil": tp, "ppil": pp, "orig_ppil": pp.copy(), "enhanced_path": ""})
+            added += 1
         self._rebuild()
-        if self.items and self.cur is None:
+        if added and self.cur is None:
             self.select(len(self.items) - 1)
+        elif added:
+            self.status.configure(text=self.t("Rasmlar qo'shildi."))
 
     def remove_photo(self):
         if self.cur is None:
@@ -483,7 +548,9 @@ class App:
         else:
             self.cap_var.set("")
             self.preview_lbl.configure(image=self._blank, text=self.t("Rasm tanlanmagan"))
-            self.ai_preview.configure(image=self._blank, text=self.t("Oldin / Keyin ko'rinish"))
+            self._ai_original_pil = None
+            self._ai_enhanced_pil = None
+            self._draw_ai_compare()
 
     def move(self, d):
         if self.cur is None:
@@ -576,36 +643,65 @@ class App:
         if self.cur is not None:
             self._update_ai_compare()
 
+    def _drag_ai_compare(self, event):
+        if not hasattr(self, "ai_canvas"):
+            return
+        width = max(1, self.ai_canvas.winfo_width())
+        pct = max(0, min(100, (event.x / width) * 100))
+        self.ai_compare.set(pct)
+        self._draw_ai_compare()
+
     def _update_ai_compare(self):
         if self.cur is None:
             return
         try:
             item = self.items[self.cur]
             original = ImageOps.exif_transpose(Image.open(item["path"])).convert("RGB")
-            original.thumbnail((760, 430), Image.LANCZOS)
             if item.get("enhanced_path") and os.path.isfile(item["enhanced_path"]):
                 enhanced = ImageOps.exif_transpose(Image.open(item["enhanced_path"])).convert("RGB")
-                enhanced.thumbnail(original.size, Image.LANCZOS)
             else:
                 tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
                 tmp.close()
                 AI.enhance_local(item["path"], tmp.name, self._enhance_settings())
                 enhanced = ImageOps.exif_transpose(Image.open(tmp.name)).convert("RGB")
-                enhanced.thumbnail(original.size, Image.LANCZOS)
                 try:
                     os.remove(tmp.name)
                 except OSError:
                     pass
-            enhanced = enhanced.resize(original.size, Image.LANCZOS)
-            split = int(original.width * (self.ai_compare.get() / 100.0))
-            canvas = original.copy()
-            canvas.paste(enhanced.crop((0, 0, split, original.height)), (0, 0))
-            im = ctk.CTkImage(light_image=canvas, dark_image=canvas, size=canvas.size)
-            self._ai_img = im
-            self.ai_preview.configure(image=im, text="")
+            self._ai_original_pil = original
+            self._ai_enhanced_pil = enhanced
+            self._draw_ai_compare()
             self.ai_title.configure(text=os.path.basename(item["path"]))
         except Exception:
             pass
+
+    def _draw_ai_compare(self):
+        if not hasattr(self, "ai_canvas"):
+            return
+        canvas = self.ai_canvas
+        canvas.delete("all")
+        if self._ai_original_pil is None or self._ai_enhanced_pil is None:
+            w = max(1, canvas.winfo_width())
+            h = max(1, canvas.winfo_height())
+            canvas.create_text(w // 2, h // 2, text=self.t("Oldin / Keyin ko'rinish"), fill="#d0d0d0", font=("Segoe UI", 16))
+            return
+        w = max(1, canvas.winfo_width())
+        h = max(1, canvas.winfo_height())
+        original = self._ai_original_pil.copy()
+        original.thumbnail((w, h), Image.LANCZOS)
+        enhanced = self._ai_enhanced_pil.copy().resize(original.size, Image.LANCZOS)
+        split = int(original.width * (self.ai_compare.get() / 100.0))
+        view = original.copy()
+        view.paste(enhanced.crop((split, 0, original.width, original.height)), (split, 0))
+        self._ai_tk = ImageTk.PhotoImage(view)
+        x = (w - view.width) // 2
+        y = (h - view.height) // 2
+        canvas.create_image(x, y, image=self._ai_tk, anchor="nw")
+        line_x = x + split
+        canvas.create_line(line_x, y, line_x, y + view.height, fill="#ffffff", width=3)
+        canvas.create_oval(line_x - 14, y + view.height // 2 - 14, line_x + 14, y + view.height // 2 + 14, fill="#ffffff", outline="#333333", width=2)
+        canvas.create_text(x + 52, y + 28, text=self.t("Oldin"), fill="#ffffff", font=("Segoe UI", 13, "bold"))
+        canvas.create_text(x + view.width - 54, y + 28, text=self.t("Keyin"), fill="#ffffff", font=("Segoe UI", 13, "bold"))
 
     def gallery_grade(self):
         src = self.items[self.cur]["ppil"] if self.cur is not None else (self.items[0]["ppil"] if self.items else None)
@@ -719,6 +815,20 @@ class App:
         except Exception:
             pass
 
+    def _restore_main_buttons(self):
+        self.busy = False
+        self.gen_btn.configure(state="normal")
+        self.prev_btn.configure(state="normal")
+        self.cancel_btn.configure(state="disabled")
+        self.open_btn.configure(state="normal" if os.path.exists(os.path.dirname(self.out_var.get())) else "disabled")
+
+    def cancel_current_job(self):
+        self.cancel_event.set()
+        self.vc_cancel_event.set()
+        self.status.configure(text=self.t("Bekor qilinmoqda..."))
+        if hasattr(self, "vc_status"):
+            self.vc_status.configure(text=self.t("Bekor qilinmoqda..."))
+
     def import_background(self):
         p = filedialog.askopenfilename(title=self.t("Background tanlash"), filetypes=[("Rasm", "*.jpg *.jpeg *.png *.webp *.bmp"), ("*", "*.*")])
         if not p:
@@ -748,7 +858,8 @@ class App:
         cur = self.bg_path.get()
         self.bg_current.configure(text=self.t("Tanlangan fon: ") + (os.path.basename(cur) if cur else self.t("yo'q")))
         refs = []
-        for p in Store.list_backgrounds():
+        for row_meta in Store.list_backgrounds(with_meta=True):
+            p = row_meta["path"]
             row = ctk.CTkFrame(self.bg_list)
             row.pack(fill="x", padx=6, pady=5)
             try:
@@ -759,7 +870,11 @@ class App:
                 ctk.CTkLabel(row, image=cimg, text="").pack(side="left", padx=6, pady=6)
             except Exception:
                 pass
-            ctk.CTkLabel(row, text=p.name, anchor="w", font=self.F).pack(side="left", fill="x", expand=True, padx=6)
+            title = ("★ " if row_meta.get("favorite") else "") + str(row_meta.get("name", p.name))
+            ctk.CTkLabel(row, text=title, anchor="w", font=self.F).pack(side="left", fill="x", expand=True, padx=6)
+            ctk.CTkButton(row, text="★" if row_meta.get("favorite") else "☆", width=38, command=lambda pp=p, fav=bool(row_meta.get("favorite")): self.toggle_background_favorite(pp, fav)).pack(side="right", padx=(0, 4))
+            ctk.CTkButton(row, text=self.t("O'chirish"), width=82, fg_color="#8a3c3c", command=lambda pp=p: self.delete_background_confirm(pp)).pack(side="right", padx=(0, 4))
+            ctk.CTkButton(row, text=self.t("Nomlash"), width=82, fg_color="#5a5a5a", command=lambda pp=p: self.rename_background_prompt(pp)).pack(side="right", padx=(0, 4))
             ctk.CTkButton(row, text=self.t("Tanlash"), width=90, command=lambda pp=p: self.select_background(pp)).pack(side="right", padx=6)
         self.bg_list._refs = refs
 
@@ -769,6 +884,48 @@ class App:
         Store.save_settings(self.settings)
         self._refresh_backgrounds()
         self._update_preview()
+
+    def rename_background_prompt(self, path):
+        name = simpledialog.askstring(self.t("Background"), self.t("Yangi nom:"), initialvalue=Path(path).stem.replace("_", " "), parent=self.root)
+        if not name:
+            return
+        try:
+            new_path = Store.rename_background(path, name)
+            if self.bg_path.get() == str(path):
+                self.bg_path.set(str(new_path))
+            self._refresh_backgrounds()
+        except Exception as exc:
+            messagebox.showerror("Background", str(exc))
+
+    def delete_background_confirm(self, path):
+        if not messagebox.askyesno(self.t("Background"), self.t("Bu backgroundni o'chiramizmi?")):
+            return
+        try:
+            Store.delete_background(path)
+            if self.bg_path.get() == str(path):
+                self.bg_path.set("")
+                self.settings["last_background"] = ""
+                Store.save_settings(self.settings)
+            self._refresh_backgrounds()
+            self._update_preview()
+        except Exception as exc:
+            messagebox.showerror("Background", str(exc))
+
+    def toggle_background_favorite(self, path, was_favorite):
+        try:
+            Store.favorite_background(path, not was_favorite)
+            self._refresh_backgrounds()
+        except Exception as exc:
+            messagebox.showerror("Background", str(exc))
+
+    def reinstall_starter_pack(self):
+        try:
+            starter_pack.install_if_needed(force=True)
+            self._refresh_backgrounds()
+            self._refresh_templates()
+            messagebox.showinfo(self.t("Starter pack"), self.t("Starter pack qayta o'rnatildi."))
+        except Exception as exc:
+            messagebox.showerror("Starter pack", str(exc))
 
     def _template_payload(self):
         return {
@@ -793,12 +950,32 @@ class App:
             "ai_settings": self._enhance_settings().normalized(),
         }
 
+    def _save_template_preview(self, name: str) -> str | None:
+        try:
+            folder = Store.templates_dir() / "previews"
+            folder.mkdir(parents=True, exist_ok=True)
+            path = Store.unique_path(folder, Store.slugify(name), ".jpg")
+            if self.cur is not None:
+                src = self._preview_source(self.items[self.cur])
+                img = SE.grade(src, self._rgrade())
+                if self.bg_path.get() and os.path.isfile(self.bg_path.get()):
+                    img = SE.compose_background_scene(img, self.bg_path.get(), 640, 360, self.sel["layout"], self.photo_scale.get(), self._photo_frame())
+            elif self.bg_path.get() and os.path.isfile(self.bg_path.get()):
+                img = ImageOps.exif_transpose(Image.open(self.bg_path.get())).convert("RGB")
+                img.thumbnail((640, 360), Image.LANCZOS)
+            else:
+                return None
+            img.save(path, quality=88)
+            return str(path)
+        except Exception:
+            return None
+
     def save_template_prompt(self):
         name = simpledialog.askstring(self.t("Shablon"), self.t("Shablon nomi:"), parent=self.root)
         if not name:
             return
         try:
-            path = Store.save_template(name, self._template_payload())
+            path = Store.save_template(name, self._template_payload(), preview_path=self._save_template_preview(name))
             self.settings["last_template"] = str(path)
             Store.save_settings(self.settings)
             self._refresh_templates()
@@ -811,16 +988,50 @@ class App:
             return
         for w in self.template_list.winfo_children():
             w.destroy()
-        for p in Store.list_templates():
-            try:
-                payload = Store.load_template(p)
-                name = payload.get("name") or p.stem
-            except Exception:
-                name = p.stem
+        refs = []
+        for row_meta in Store.list_templates(with_meta=True):
+            p = row_meta["path"]
+            name = row_meta.get("name") or p.stem
             row = ctk.CTkFrame(self.template_list)
             row.pack(fill="x", padx=6, pady=5)
-            ctk.CTkLabel(row, text=name, anchor="w", font=self.F).pack(side="left", fill="x", expand=True, padx=8, pady=8)
+            preview = str(row_meta.get("preview_path") or "")
+            if preview and os.path.isfile(preview):
+                try:
+                    im = ImageOps.exif_transpose(Image.open(preview)).convert("RGB")
+                    im.thumbnail((92, 58), Image.LANCZOS)
+                    cimg = ctk.CTkImage(light_image=im, dark_image=im, size=im.size)
+                    refs.append(cimg)
+                    ctk.CTkLabel(row, image=cimg, text="").pack(side="left", padx=6, pady=6)
+                except Exception:
+                    pass
+            ctk.CTkLabel(row, text=str(name), anchor="w", font=self.F).pack(side="left", fill="x", expand=True, padx=8, pady=8)
+            ctk.CTkButton(row, text=self.t("O'chirish"), width=82, fg_color="#8a3c3c", command=lambda pp=p: self.delete_template_confirm(pp)).pack(side="right", padx=(0, 4))
+            ctk.CTkButton(row, text=self.t("Nomlash"), width=82, fg_color="#5a5a5a", command=lambda pp=p: self.rename_template_prompt(pp)).pack(side="right", padx=(0, 4))
             ctk.CTkButton(row, text=self.t("Ochish"), width=90, command=lambda pp=p: self.load_template(pp)).pack(side="right", padx=6)
+        self.template_list._refs = refs
+
+    def rename_template_prompt(self, path):
+        try:
+            current = Store.load_template(path).get("name") or Path(path).stem
+        except Exception:
+            current = Path(path).stem
+        name = simpledialog.askstring(self.t("Shablon"), self.t("Yangi nom:"), initialvalue=current, parent=self.root)
+        if not name:
+            return
+        try:
+            Store.rename_template(path, name)
+            self._refresh_templates()
+        except Exception as exc:
+            messagebox.showerror("Shablon", str(exc))
+
+    def delete_template_confirm(self, path):
+        if not messagebox.askyesno(self.t("Shablon"), self.t("Bu shablonni o'chiramizmi?")):
+            return
+        try:
+            Store.delete_template(path)
+            self._refresh_templates()
+        except Exception as exc:
+            messagebox.showerror("Shablon", str(exc))
 
     def load_template(self, path):
         try:
@@ -909,9 +1120,11 @@ class App:
         if self.busy:
             return
         self.busy = True
+        self.cancel_event.clear()
         self.status.configure(text=self.t("AI ishlayapti..."))
         self.gen_btn.configure(state="disabled")
         self.prev_btn.configure(state="disabled")
+        self.cancel_btn.configure(state="normal")
         threading.Thread(target=self._ai_worker, args=(targets, mode), daemon=True).start()
         self.root.after(120, self._poll)
 
@@ -920,6 +1133,9 @@ class App:
             settings = self._enhance_settings()
             key = Store.get_api_key("openai") if mode == "openai" else ""
             for n, idx in enumerate(targets, 1):
+                if self.cancel_event.is_set():
+                    self.q.put(("cancelled", 0, self.t("Bekor qilindi"), False))
+                    return
                 item = self.items[idx]
                 provider = "openai" if mode == "openai" else "local"
                 model = self.model_var.get() if mode == "openai" else "pillow-local"
@@ -929,6 +1145,9 @@ class App:
                         AI.openai_enhance(item["path"], out, key, model=self.model_var.get(), quality=self.openai_quality_var.get())
                     else:
                         AI.enhance_local(item["path"], out, settings)
+                if self.cancel_event.is_set():
+                    self.q.put(("cancelled", 0, self.t("Bekor qilindi"), False))
+                    return
                 self.q.put(("ai_one", idx, str(out), f"AI: {n}/{len(targets)}"))
             self.q.put(("ai_done", 100, self.t("AI tayyor"), False))
         except Exception as exc:
@@ -1037,14 +1256,17 @@ class App:
         res = None if out_format in AUDIO_ONLY_FORMATS else RESOLUTIONS.get(self.vc_res.get())
         fps = None if out_format in AUDIO_ONLY_FORMATS else FRAME_RATES.get(self.vc_fps.get())
         extra = build_conversion_args(out_format, resolution=res, fps=fps, quality=self.vc_quality.get())
+        self.vc_cancel_event.clear()
         self.vc_button.configure(state="disabled")
+        self.vc_cancel_btn.configure(state="normal")
+        self.cancel_btn.configure(state="normal")
         self.vc_status.configure(text=self.t("Konvertatsiya..."))
         self.vc_progress.set(0)
         threading.Thread(target=self._vc_worker, args=(self.vc_input, output_path, extra), daemon=True).start()
 
     def _vc_worker(self, input_path, output_path, extra):
         try:
-            result = convert(input_path, output_path, extra_args=extra, on_progress=lambda frac: self.root.after(0, self._vc_progress, frac))
+            result = convert(input_path, output_path, extra_args=extra, cancel_event=self.vc_cancel_event, on_progress=lambda frac: self.root.after(0, self._vc_progress, frac))
             self.root.after(0, self._vc_done, result, output_path)
         except Exception as exc:
             self.root.after(0, self._vc_error, str(exc))
@@ -1055,15 +1277,23 @@ class App:
 
     def _vc_done(self, result, output_path):
         self.vc_button.configure(state="normal")
+        self.vc_cancel_btn.configure(state="disabled")
+        if not self.busy:
+            self.cancel_btn.configure(state="disabled")
         if result.success:
             self.vc_progress.set(1)
             self.vc_status.configure(text=self.t("Tayyor: ") + str(output_path))
+        elif result.returncode == -1:
+            self.vc_status.configure(text=self.t("Bekor qilindi"))
         else:
             self.vc_status.configure(text=self.t("Xato"))
             messagebox.showerror("Video Tools", result.stderr_tail or self.t("Konvertatsiya xato tugadi."))
 
     def _vc_error(self, msg):
         self.vc_button.configure(state="normal")
+        self.vc_cancel_btn.configure(state="disabled")
+        if not self.busy:
+            self.cancel_btn.configure(state="disabled")
         self.vc_status.configure(text=self.t("Xato"))
         messagebox.showerror("Video Tools", msg)
 
@@ -1136,9 +1366,11 @@ class App:
 
     def _start(self, cfg, open_after):
         self.busy = True
+        self.cancel_event.clear()
         self.gen_btn.configure(state="disabled")
         self.prev_btn.configure(state="disabled")
         self.open_btn.configure(state="disabled")
+        self.cancel_btn.configure(state="normal")
         self.pbar.set(0)
         self.status.configure(text=self.t("Boshlanmoqda..."))
         threading.Thread(target=self._worker, args=(cfg, open_after), daemon=True).start()
@@ -1146,8 +1378,10 @@ class App:
 
     def _worker(self, cfg, oa):
         try:
-            SE.build_video(cfg, lambda p, m: self.q.put(("p", p, m)))
+            SE.build_video(cfg, lambda p, m: self.q.put(("p", p, m)), cancel_event=self.cancel_event)
             self.q.put(("done", 100, cfg["output"], oa))
+        except SE.CancelledError:
+            self.q.put(("cancelled", 0, self.t("Bekor qilindi"), False))
         except Exception as e:
             self.q.put(("err", 0, str(e), False))
 
@@ -1162,19 +1396,17 @@ class App:
                     self._apply_ai_result(m[1], m[2])
                     self.status.configure(text=m[3])
                 elif m[0] == "ai_done":
-                    self.busy = False
-                    self.gen_btn.configure(state="normal")
-                    self.prev_btn.configure(state="normal")
-                    self.open_btn.configure(state="normal" if os.path.exists(os.path.dirname(self.out_var.get())) else "disabled")
+                    self._restore_main_buttons()
                     self.status.configure(text=self.t("AI tayyor"))
                     return
+                elif m[0] == "cancelled":
+                    self._restore_main_buttons()
+                    self.status.configure(text=self.t("Bekor qilindi"))
+                    return
                 elif m[0] == "done":
-                    self.busy = False
+                    self._restore_main_buttons()
                     self.pbar.set(1.0)
                     self.status.configure(text=self.t("Tayyor!"))
-                    self.gen_btn.configure(state="normal")
-                    self.prev_btn.configure(state="normal")
-                    self.open_btn.configure(state="normal")
                     if m[3]:
                         try:
                             if platform.system() == "Windows":
@@ -1191,9 +1423,7 @@ class App:
                             self.save_template_prompt()
                     return
                 elif m[0] == "err":
-                    self.busy = False
-                    self.gen_btn.configure(state="normal")
-                    self.prev_btn.configure(state="normal")
+                    self._restore_main_buttons()
                     self.status.configure(text=self.t("Xato"))
                     messagebox.showerror("Xato", str(m[2]))
                     return
@@ -1203,6 +1433,6 @@ class App:
 
 
 if __name__ == "__main__":
-    root = ctk.CTk()
+    root = CTkDnD() if CTkDnD is not None else ctk.CTk()
     App(root)
     root.mainloop()

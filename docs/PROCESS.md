@@ -25,7 +25,7 @@ When changing code, update at least one of:
 For normal code changes, run:
 
 ```powershell
-python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py video_converter\src\video_converter\converter.py
+python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py starter_pack.py video_converter\src\video_converter\converter.py
 $env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src"; python -m pytest tests video_converter\tests
 ```
 
@@ -42,4 +42,4 @@ Each completed work session should record:
 
 ## GitHub / Git Rules
 
-This checkout currently has no `.git` directory. Before pushing public code, confirm the GitHub repo name, owner/account, visibility, and whether sample assets/backgrounds are safe to publish. Do not publish API keys, personal photos, generated user media, or local AppData contents.
+This checkout is a Git repository on `main` with remote `origin` at `https://github.com/Kingprogrammer07/photo_video_studio.git`. Commit focused milestones and push regularly. Do not publish API keys, personal photos, generated user media, local AppData contents, or temporary smoke-test outputs.

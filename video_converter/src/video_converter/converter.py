@@ -186,6 +186,7 @@ def convert(
     *,
     on_progress: Optional[Callable[[float], None]] = None,
     extra_args: Optional[list[str]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> ConversionResult:
     """Convert input_path to output_path via ffmpeg.
 
@@ -235,10 +236,29 @@ def convert(
         on_progress(0.0)
 
     for line in process.stdout:
+        if cancel_event is not None and cancel_event.is_set():
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            stderr_thread.join(timeout=1)
+            return ConversionResult(False, -1, "Bekor qilindi")
         time_match = _TIME_RE.search(line)
         if time_match and on_progress and duration_seconds:
             elapsed = int(time_match.group(1)) / 1_000_000
             on_progress(min(elapsed / duration_seconds, 1.0))
+
+    if cancel_event is not None and cancel_event.is_set():
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        stderr_thread.join(timeout=1)
+        return ConversionResult(False, -1, "Bekor qilindi")
 
     process.wait()
     stderr_thread.join()

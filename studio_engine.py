@@ -6,13 +6,17 @@ Pure Pillow + numpy + ffmpeg. Fonts from ./fonts then system.
 YANGI EFFEKT QO'SHISH: pastdagi GRADES/grade() (rang uchun) yoki
 TRANSITIONS/_trans_list() (o'tish uchun) ga bitta qator qo'shing. Batafsil: EFFEKT_QOSHISH.md
 """
-import os, math, tempfile, subprocess, shutil, numpy as np
+import os, math, tempfile, subprocess, shutil, time, numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FONTS_DIR = os.path.join(HERE, "fonts")
 RES = {"720p (tez)": (1280,720), "1080p": (1920,1080), "1440p (2K)": (2560,1440),
        "2160p (4K)": (3840,2160), "Vertical 1080x1920": (1080,1920), "Kvadrat 1080": (1080,1080)}
+
+
+class CancelledError(RuntimeError):
+    """Raised when the user cancels a render."""
 
 # --- EFFEKTLAR ro'yxati (GUI shulardan menyu yasaydi) ---
 GRADES = ["auto","warm","cool","neutral","bright","vivid","soft","sepia","bw","vintage","none"]
@@ -260,9 +264,27 @@ def _ff():
     f=find_ffmpeg()
     if not f: raise RuntimeError(MSG_NOFF)
     return f
-def _run(cmd):
+def _check_cancel(cancel_event=None):
+    if cancel_event is not None and cancel_event.is_set():
+        raise CancelledError("Bekor qilindi")
+
+
+def _run(cmd, cancel_event=None):
+    _check_cancel(cancel_event)
     if cmd and cmd[0]=="ffmpeg": cmd=[_ff()]+list(cmd[1:])
-    subprocess.run(cmd,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    proc=subprocess.Popen(cmd,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    while proc.poll() is None:
+        if cancel_event is not None and cancel_event.is_set():
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            raise CancelledError("Bekor qilindi")
+        time.sleep(0.12)
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode,cmd)
 
 # ---------- scene / clip ----------
 def _kb(i):
@@ -278,7 +300,7 @@ def _vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain):
     if vig: base+=",vignette=PI/5.0"
     if grain: base+=",noise=alls=6:allf=t"
     return base,N
-def render_scene(gp,cap_png,dur,i,W,H,fps,vig,amt,grain,bloom,out):
+def render_scene(gp,cap_png,dur,i,W,H,fps,vig,amt,grain,bloom,out,cancel_event=None):
     zdir,dx,dy=_kb(i); base,N=_vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain)
     parts=[f"[0:v]{base}[v0]"]; last="v0"
     if bloom:
@@ -292,9 +314,9 @@ def render_scene(gp,cap_png,dur,i,W,H,fps,vig,amt,grain,bloom,out):
         parts.append(f"[{last}][c]overlay=0:0[o]"); last="o"
     fc=";".join(parts)
     _run(["ffmpeg","-y",*inp,"-filter_complex",fc,"-map",f"[{last}]","-frames:v",str(N),"-r",str(fps),
-          "-c:v","libx264","-crf","12","-preset","veryfast","-pix_fmt","yuv420p",out])
+          "-c:v","libx264","-crf","12","-preset","veryfast","-pix_fmt","yuv420p",out], cancel_event)
 
-def render_static_scene(gp,cap_png,dur,i,W,H,fps,grain,bloom,out):
+def render_static_scene(gp,cap_png,dur,i,W,H,fps,grain,bloom,out,cancel_event=None):
     N=int(dur*fps)
     parts=[f"[0:v]scale={W}:{H},fps={fps}"]
     if grain: parts[0]+=",noise=alls=4:allf=t"
@@ -310,12 +332,12 @@ def render_static_scene(gp,cap_png,dur,i,W,H,fps,grain,bloom,out):
         parts.append(f"[1:v]fade=t=in:st=0.5:d=0.6:alpha=1,fade=t=out:st={fade_out:.2f}:d=0.6:alpha=1[c]")
         parts.append(f"[{last}][c]overlay=0:0[o]"); last="o"
     _run(["ffmpeg","-y",*inp,"-filter_complex",";".join(parts),"-map",f"[{last}]","-frames:v",str(N),"-r",str(fps),
-          "-c:v","libx264","-crf","12","-preset","veryfast","-pix_fmt","yuv420p",out])
-def render_card_clip(card,dur,W,H,fps,fade_out,bg,out):
+          "-c:v","libx264","-crf","12","-preset","veryfast","-pix_fmt","yuv420p",out], cancel_event)
+def render_card_clip(card,dur,W,H,fps,fade_out,bg,out,cancel_event=None):
     N=int(dur*fps); sc=max(3840,int(W*1.5)); sch=int(sc*H/W); col="white" if bg=="light" else "black"
     vf=(f"scale={sc}:{sch},zoompan=z='min(1.001+0.0004*on,1.05)':d={N}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={W}x{H}:fps={fps},fade=t=in:st=0:d=0.6:color={col}")
     if fade_out: vf+=f",fade=t=out:st={max(0.0,dur-1.0):.2f}:d=1.0:color={col}"
-    _run(["ffmpeg","-y","-i",card,"-vf",vf,"-frames:v",str(N),"-r",str(fps),"-c:v","libx264","-crf","12","-preset","veryfast","-pix_fmt","yuv420p",out])
+    _run(["ffmpeg","-y","-i",card,"-vf",vf,"-frames:v",str(N),"-r",str(fps),"-c:v","libx264","-crf","12","-preset","veryfast","-pix_fmt","yuv420p",out], cancel_event)
 def _trans_list(ttype,n):
     M={"fade":["fade"],"fadeblack":["fadeblack"],"fadewhite":["fadewhite"],
        "slide":["slideleft","slideright"],"push":["smoothleft","smoothright"],
@@ -325,7 +347,7 @@ def _trans_list(ttype,n):
     seq=M.get(ttype,["fade"]); tr=[seq[i%len(seq)] for i in range(n)]
     if tr: tr[0]="fade"; tr[-1]="fade"
     return tr
-def stitch(clips,durs,D,ttype,music,crf,preset,fps,out):
+def stitch(clips,durs,D,ttype,music,crf,preset,fps,out,cancel_event=None):
     n=len(clips); cum=0.0; off=[]
     for k in range(n-1): cum+=durs[k]; off.append(round(cum-(k+1)*D,3))
     tr=_trans_list(ttype,n-1)
@@ -337,10 +359,11 @@ def stitch(clips,durs,D,ttype,music,crf,preset,fps,out):
         lbl=f"x{k}"; parts.append(f"[{prev}][{k}:v]xfade=transition={tr[k-1]}:duration={D}:offset={off[k-1]}[{lbl}]"); prev=lbl
     _run(["ffmpeg","-y",*inp,"-filter_complex",";".join(parts),"-map",f"[{prev}]","-map",f"{n}:a",
           "-c:v","libx264","-pix_fmt","yuv420p","-r",str(fps),"-crf",str(crf),"-preset",preset,
-          "-c:a","aac","-b:a","192k","-shortest","-movflags","+faststart",out])
+          "-c:a","aac","-b:a","192k","-shortest","-movflags","+faststart",out], cancel_event)
 
-def build_video(config, progress=lambda p,m: None):
+def build_video(config, progress=lambda p,m: None, cancel_event=None):
     import music as MU
+    _check_cancel(cancel_event)
     if find_ffmpeg() is None: raise RuntimeError(MSG_NOFF)
     st=STYLES[config["style"]]
     W,H=RES.get(config.get("resolution","1440p (2K)"),(2560,1440)); fps=int(config.get("fps",30))
@@ -363,6 +386,7 @@ def build_video(config, progress=lambda p,m: None):
     progress(3,"Rasmlar tayyorlanmoqda...")
     graded=[]
     for i,p in enumerate(photos):
+        _check_cancel(cancel_event)
         ep=enhanced.get(p) if isinstance(enhanced,dict) else None
         src=ep if ep and os.path.isfile(ep) else p
         g=grade(load_photo(src),gmode)
@@ -375,29 +399,33 @@ def build_video(config, progress=lambda p,m: None):
         progress(3+int(12*(i+1)/len(photos)),f"Rang: {i+1}/{len(photos)}")
     cap_png={}
     for k,txt in caps.items():
+        _check_cancel(cancel_event)
         if txt: cp=os.path.join(work,f"c{int(k)}.png"); build_caption(txt,st,W,H,cp); cap_png[int(k)]=cp
     progress(18,"Kartalar...")
+    _check_cancel(cancel_event)
     tc=os.path.join(work,"tc.png"); build_title_card(config,st,W,H,tc)
     oc=os.path.join(work,"oc.png"); build_outro_card(config,st,W,H,oc)
-    tclip=os.path.join(work,"title.mkv"); render_card_clip(tc,TDUR,W,H,fps,False,st["card_bg"],tclip)
-    oclip=os.path.join(work,"outro.mkv"); render_card_clip(oc,ODUR,W,H,fps,True,st["card_bg"],oclip)
+    tclip=os.path.join(work,"title.mkv"); render_card_clip(tc,TDUR,W,H,fps,False,st["card_bg"],tclip,cancel_event)
+    oclip=os.path.join(work,"outro.mkv"); render_card_clip(oc,ODUR,W,H,fps,True,st["card_bg"],oclip,cancel_event)
     progress(30,"Sahnalar...")
     sclips=[]
     for i,gp in enumerate(graded):
+        _check_cancel(cancel_event)
         sc=os.path.join(work,f"s{i}.mkv")
         if has_bg:
-            render_static_scene(gp,cap_png.get(i+1),PDUR,i,W,H,fps,grain,bloom,sc)
+            render_static_scene(gp,cap_png.get(i+1),PDUR,i,W,H,fps,grain,bloom,sc,cancel_event)
         else:
-            render_scene(gp,cap_png.get(i+1),PDUR,i,W,H,fps,vig,amt,grain,bloom,sc)
+            render_scene(gp,cap_png.get(i+1),PDUR,i,W,H,fps,vig,amt,grain,bloom,sc,cancel_event)
         sclips.append(sc)
         progress(30+int(48*(i+1)/len(graded)),f"Sahna: {i+1}/{len(graded)}")
     clips=[tclip]+sclips+[oclip]; durs=[TDUR]+[PDUR]*len(sclips)+[ODUR]
     total=round(sum(durs)-(len(durs)-1)*D,3)
     progress(82,"Musiqa...")
+    _check_cancel(cancel_event)
     if config.get("music","auto")=="auto":
         mp=os.path.join(work,"m.wav"); MU.generate(st["music"],round(total+0.3,2),mp)
     else: mp=config["music"]
     progress(90,"Video yig'ilmoqda...")
-    stitch(clips,durs,D,ttype,mp,crf,preset,fps,out)
+    stitch(clips,durs,D,ttype,mp,crf,preset,fps,out,cancel_event)
     progress(100,"Tayyor!")
     return out

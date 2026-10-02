@@ -22,6 +22,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "ai_consent": False,
     "last_background": "",
     "last_template": "",
+    "favorite_backgrounds": [],
+    "starter_pack_version": "",
 }
 
 
@@ -95,6 +97,34 @@ def unique_path(folder: Path, stem: str, suffix: str) -> Path:
     return candidate
 
 
+def _as_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(v) for v in value if str(v).strip()]
+
+
+def _safe_child(path: str | os.PathLike[str], folder: Path) -> Path:
+    target = Path(path).resolve(strict=False)
+    root = folder.resolve(strict=False)
+    try:
+        ok = target.is_relative_to(root)
+    except AttributeError:
+        ok = str(target).lower().startswith(str(root).lower() + os.sep)
+    if not ok:
+        raise ValueError("Bu fayl app papkasidan tashqarida.")
+    return target
+
+
+def _replace_favorite_path(old: Path, new: Path | None = None) -> None:
+    settings = load_settings()
+    old_s = str(old)
+    favorites = [p for p in _as_list(settings.get("favorite_backgrounds")) if p != old_s]
+    if new is not None:
+        favorites.append(str(new))
+    settings["favorite_backgrounds"] = sorted(set(favorites))
+    save_settings(settings)
+
+
 def import_background(src: str | os.PathLike[str]) -> Path:
     ensure_dirs()
     source = Path(src)
@@ -105,25 +135,99 @@ def import_background(src: str | os.PathLike[str]) -> Path:
     return dest
 
 
-def list_backgrounds() -> list[Path]:
+def list_backgrounds(with_meta: bool = False) -> list[Path] | list[dict[str, Any]]:
     ensure_dirs()
-    return sorted(
+    paths = sorted(
         [p for p in backgrounds_dir().iterdir() if p.suffix.lower() in SUPPORTED_BG],
         key=lambda p: p.name.lower(),
     )
+    if not with_meta:
+        return paths
+    favorites = set(_as_list(load_settings().get("favorite_backgrounds")))
+    rows = []
+    for p in paths:
+        rows.append(
+            {
+                "path": p,
+                "name": p.stem.replace("_", " "),
+                "favorite": str(p) in favorites,
+                "builtin": p.name.startswith("starter_"),
+                "preview_path": p,
+            }
+        )
+    return sorted(rows, key=lambda row: (not row["favorite"], row["name"].lower()))
 
 
-def save_template(name: str, data: dict[str, Any]) -> Path:
+def rename_background(path: str | os.PathLike[str], new_name: str) -> Path:
+    ensure_dirs()
+    src = _safe_child(path, backgrounds_dir())
+    if src.suffix.lower() not in SUPPORTED_BG or not src.exists():
+        raise FileNotFoundError("Background topilmadi.")
+    dest = unique_path(backgrounds_dir(), slugify(new_name), src.suffix.lower())
+    src.rename(dest)
+    settings = load_settings()
+    if settings.get("last_background") == str(src):
+        settings["last_background"] = str(dest)
+        save_settings(settings)
+    _replace_favorite_path(src, dest)
+    return dest
+
+
+def delete_background(path: str | os.PathLike[str]) -> None:
+    ensure_dirs()
+    target = _safe_child(path, backgrounds_dir())
+    if target.exists() and target.suffix.lower() in SUPPORTED_BG:
+        target.unlink()
+    settings = load_settings()
+    if settings.get("last_background") == str(target):
+        settings["last_background"] = ""
+    settings["favorite_backgrounds"] = [
+        p for p in _as_list(settings.get("favorite_backgrounds")) if p != str(target)
+    ]
+    save_settings(settings)
+
+
+def favorite_background(path: str | os.PathLike[str], favorite: bool = True) -> None:
+    ensure_dirs()
+    target = _safe_child(path, backgrounds_dir())
+    if not target.exists():
+        raise FileNotFoundError("Background topilmadi.")
+    settings = load_settings()
+    favorites = set(_as_list(settings.get("favorite_backgrounds")))
+    if favorite:
+        favorites.add(str(target))
+    else:
+        favorites.discard(str(target))
+    settings["favorite_backgrounds"] = sorted(favorites)
+    save_settings(settings)
+
+
+def save_template(name: str, data: dict[str, Any], preview_path: str | os.PathLike[str] | None = None) -> Path:
     ensure_dirs()
     path = unique_path(templates_dir(), slugify(name), ".json")
-    payload = {"name": name.strip() or path.stem, "data": data}
+    payload: dict[str, Any] = {"name": name.strip() or path.stem, "data": data}
+    if preview_path:
+        payload["preview_path"] = str(preview_path)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
 
 
-def list_templates() -> list[Path]:
+def list_templates(with_meta: bool = False) -> list[Path] | list[dict[str, Any]]:
     ensure_dirs()
-    return sorted(templates_dir().glob("*.json"), key=lambda p: p.name.lower())
+    paths = sorted(templates_dir().glob("*.json"), key=lambda p: p.name.lower())
+    if not with_meta:
+        return paths
+    rows = []
+    for p in paths:
+        try:
+            payload = load_template(p)
+            name = payload.get("name") or p.stem
+            preview = payload.get("preview_path", "")
+        except Exception:
+            name = p.stem
+            preview = ""
+        rows.append({"path": p, "name": name, "preview_path": preview})
+    return rows
 
 
 def load_template(path: str | os.PathLike[str]) -> dict[str, Any]:
@@ -131,6 +235,56 @@ def load_template(path: str | os.PathLike[str]) -> dict[str, Any]:
     if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
         return payload
     return {"name": Path(path).stem, "data": payload if isinstance(payload, dict) else {}}
+
+
+def rename_template(path: str | os.PathLike[str], new_name: str) -> Path:
+    ensure_dirs()
+    src = _safe_child(path, templates_dir())
+    if not src.exists() or src.suffix.lower() != ".json":
+        raise FileNotFoundError("Shablon topilmadi.")
+    payload = load_template(src)
+    payload["name"] = new_name.strip() or src.stem
+    dest = unique_path(templates_dir(), slugify(payload["name"]), ".json")
+    src.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    src.rename(dest)
+    settings = load_settings()
+    if settings.get("last_template") == str(src):
+        settings["last_template"] = str(dest)
+        save_settings(settings)
+    return dest
+
+
+def delete_template(path: str | os.PathLike[str]) -> None:
+    ensure_dirs()
+    target = _safe_child(path, templates_dir())
+    preview = ""
+    if target.exists() and target.suffix.lower() == ".json":
+        try:
+            preview = str(load_template(target).get("preview_path", ""))
+        except Exception:
+            preview = ""
+        target.unlink()
+    if preview:
+        try:
+            prev = _safe_child(preview, templates_dir())
+            if prev.exists() and prev.suffix.lower() in SUPPORTED_BG:
+                prev.unlink()
+        except Exception:
+            pass
+    settings = load_settings()
+    if settings.get("last_template") == str(target):
+        settings["last_template"] = ""
+        save_settings(settings)
+
+
+def starter_pack_installed(version: str = "1") -> bool:
+    return load_settings().get("starter_pack_version") == version
+
+
+def mark_starter_pack_installed(version: str = "1") -> None:
+    settings = load_settings()
+    settings["starter_pack_version"] = version
+    save_settings(settings)
 
 
 def _keyring():

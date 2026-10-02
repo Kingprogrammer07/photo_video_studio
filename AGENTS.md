@@ -5,7 +5,7 @@
 - `app.py` is the main CustomTkinter GUI for Photo Video Studio.
 - `studio_engine.py` contains the slideshow render pipeline, effect registries, ffmpeg calls, and image processing.
 - `music.py` generates built-in piano background audio.
-- `image_enhance.py` and `pvs_storage.py` support AI enhancement, AppData storage, templates, backgrounds, and secure API keys.
+- `image_enhance.py`, `pvs_storage.py`, and `starter_pack.py` support AI enhancement, AppData storage, templates, backgrounds, starter assets, and secure API keys.
 - `fonts/`, `previews/`, and `wheels/` are committed assets used for consistent rendering and offline setup.
 - `output/` is for generated videos; keep it out of commits.
 - `video_converter/` is a separate packaged Tkinter utility using `src/video_converter/` and `video_converter/tests/`.
@@ -17,6 +17,7 @@
 - `pip install -r requirements.txt`: installs root app dependencies.
 - `python app.py`: starts Photo Video Studio manually.
 - `python music.py warm`: writes a sample generated music track for quick audio checks.
+- `python -m pytest tests video_converter\tests`: runs root vNext tests and converter tests when `video_converter\src` is on `PYTHONPATH`.
 - `build_exe.bat`: builds `dist/PhotoVideoStudio.exe` with PyInstaller; ffmpeg is still required externally.
 - `cd video_converter && pip install -e ".[dev]"`: installs the converter package and pytest.
 - `cd video_converter && pytest`: runs converter tests.
@@ -31,17 +32,17 @@ No formatter or linter is configured. Keep edits focused, readable, and lightly 
 
 ## Testing Guidelines
 
-The root slideshow app currently has no automated tests; validate GUI and render changes with a short preview render before full export. The converter package uses pytest, with tests named `test_*.py` under `video_converter/tests/`. Add tests for converter argument-building, parsing, and error behavior when changing `converter.py`.
+The root vNext tests live in `tests/`; converter tests live in `video_converter/tests/`. Validate GUI and render changes with a short preview render before full export. Add focused tests for storage, templates, cancel flow, converter arguments, parsing, and error behavior when changing those areas.
 
 For vNext core changes, run:
 
-`python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py video_converter\src\video_converter\converter.py`
+`python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py starter_pack.py video_converter\src\video_converter\converter.py`
 
 `$env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src"; python -m pytest tests video_converter\tests`
 
 ## Commit & Pull Request Guidelines
 
-This checkout has no Git history available, so use concise imperative commit subjects such as `Add radial transition preview` or `Fix ffmpeg path handling`. Pull requests should describe the user-visible change, list checks or pytest results, mention ffmpeg/Python versions when relevant, and include screenshots or sample output paths for GUI/rendering changes.
+Use concise imperative commit subjects such as `Add starter template pack` or `Fix ffmpeg cancel handling`. Pull requests should describe the user-visible change, list checks or pytest results, mention ffmpeg/Python versions when relevant, and include screenshots or sample output paths for GUI/rendering changes.
 
 ## Security & Configuration Tips
 

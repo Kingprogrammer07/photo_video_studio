@@ -1,10 +1,13 @@
 from pathlib import Path
+import threading
 
 import pytest
 
+import video_converter.converter as converter
 from video_converter.converter import (
     SUPPORTED_FORMATS,
     build_conversion_args,
+    convert,
     _probe_duration_seconds,
     find_ffmpeg,
 )
@@ -106,3 +109,33 @@ def test_build_conversion_args_wav_is_audio_only():
 def test_build_conversion_args_unknown_quality_falls_back_to_balanced():
     args = build_conversion_args("mp4", quality="not a real preset")
     assert args[args.index("-crf") + 1] == "23"
+
+
+def test_convert_cancel_event_returns_cancelled(monkeypatch, tmp_path):
+    class FakeProcess:
+        def __init__(self):
+            self.stdout = iter(["out_time_ms=1000000\n"])
+            self.stderr = iter(["Duration: 00:00:02.00, start: 0.000000\n"])
+            self.returncode = None
+            self.terminated = False
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+        def kill(self):
+            self.returncode = -9
+
+        def wait(self, timeout=None):
+            if self.returncode is None:
+                self.returncode = 0
+            return self.returncode
+
+    monkeypatch.setattr(converter, "find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(converter.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    cancel_event = threading.Event()
+    cancel_event.set()
+    result = convert(tmp_path / "in.mov", tmp_path / "out.mp4", cancel_event=cancel_event)
+    assert result.success is False
+    assert result.returncode == -1
+    assert "Bekor qilindi" in result.stderr_tail

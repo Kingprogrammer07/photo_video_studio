@@ -1,7 +1,9 @@
 import importlib
 import os
+import threading
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 
@@ -71,3 +73,63 @@ def test_background_scene_composes_expected_size(tmp_path):
         frame={"border": True, "shadow": True},
     )
     assert scene.size == (640, 360)
+
+
+def test_background_and_template_metadata_ops(tmp_path, monkeypatch):
+    monkeypatch.setenv("PVS_APPDATA", str(tmp_path))
+    import pvs_storage
+
+    importlib.reload(pvs_storage)
+    src = tmp_path / "custom.jpg"
+    Image.new("RGB", (120, 80), (20, 80, 130)).save(src)
+    bg = pvs_storage.import_background(src)
+    pvs_storage.favorite_background(bg, True)
+    rows = pvs_storage.list_backgrounds(with_meta=True)
+    assert rows[0]["favorite"] is True
+
+    renamed = pvs_storage.rename_background(bg, "Family Blue")
+    assert renamed.exists()
+    assert not bg.exists()
+    assert pvs_storage.list_backgrounds(with_meta=True)[0]["path"] == renamed
+
+    preview = pvs_storage.templates_dir() / "preview.jpg"
+    Image.new("RGB", (80, 45), (200, 180, 140)).save(preview)
+    tpl = pvs_storage.save_template("My Template", {"photo_layout": "center"}, preview_path=preview)
+    meta = pvs_storage.list_templates(with_meta=True)[0]
+    assert meta["preview_path"] == str(preview)
+    renamed_tpl = pvs_storage.rename_template(tpl, "Renamed Template")
+    assert pvs_storage.load_template(renamed_tpl)["name"] == "Renamed Template"
+
+    pvs_storage.delete_template(renamed_tpl)
+    assert not renamed_tpl.exists()
+    pvs_storage.delete_background(renamed)
+    assert not renamed.exists()
+
+
+def test_starter_pack_installs_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("PVS_APPDATA", str(tmp_path))
+    import pvs_storage
+    import starter_pack
+
+    importlib.reload(pvs_storage)
+    importlib.reload(starter_pack)
+    assert starter_pack.install_if_needed() is True
+    assert len(pvs_storage.list_backgrounds()) == 8
+    assert len(pvs_storage.list_templates()) == 8
+    names = {pvs_storage.load_template(path)["name"] for path in pvs_storage.list_templates()}
+    assert "Oilaviy ko'k" in names
+    assert starter_pack.install_if_needed() is False
+    assert len(pvs_storage.list_backgrounds()) == 8
+    assert len(pvs_storage.list_templates()) == 8
+
+
+def test_build_video_cancel_event_stops_before_render():
+    import studio_engine as se
+
+    cancel_event = threading.Event()
+    cancel_event.set()
+    with pytest.raises(se.CancelledError):
+        se.build_video(
+            {"style": list(se.STYLES.keys())[0], "photos": [], "output": "unused.mp4"},
+            cancel_event=cancel_event,
+        )
