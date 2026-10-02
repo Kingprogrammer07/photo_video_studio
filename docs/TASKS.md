@@ -32,16 +32,22 @@ Last updated: 2026-10-02
 - Added ProShow-style motion presets and layered background rendering where the background stays stable while the photo/frame moves.
 - Added per-slide duration override controls and render support through `photo_durations`.
 - Added tests for in-memory enhance preview, motion fallback, and duration resolution.
+- Added text-on/off controls, title/caption/outro switches, text templates, and font presets.
+- Added lightweight animated slideshow preview for motion/effects and moved `Aniq ko'rish` to the visible preview toolbar.
+- Reworked template list into 2-column cards with larger previews.
+- Shifted AI Studio user flow to OpenAI-first presets and batch/selected OpenAI enhancement.
+- Updated OpenAI image-edit payload to current docs: base64 response is read from `data[0].b64_json` without sending `response_format`.
+- Added tests for text flags, single-clip stitch, font fallback, starter template text fields, and OpenAI prompt building.
 
 ## Next High-Value Tasks
 
 - Manually validate OpenAI enhance with a real API key using `docs/OPENAI_MANUAL_TEST.md`.
+- Manually verify live motion preview smoothness on the target Windows laptop.
 - Install Inno Setup and run full `build_exe.bat` to produce `release\PhotoVideoStudioSetup-0.3.0.exe`.
 - Create first GitHub Release with `scripts\publish_release.ps1`, then test in-app update check against that release.
 - Test drag-and-drop on a machine with `tkinterdnd2` installed.
 - Add Gemini provider adapter after OpenAI flow is stable.
 - Add an advanced keyframe editor for custom motion paths after preset motion is stable.
-- Add a tiny animated preview clip for motion presets, not only a static exact frame.
 - Add user-facing starter template category filters if the template list grows.
 - Add installer or portable EXE packaging test.
 - Add UI smoke tests if a Windows GUI test approach is chosen.
@@ -49,7 +55,7 @@ Last updated: 2026-10-02
 ## Known Limitations
 
 - OpenAI enhance is wired through the Images edit endpoint but still needs real API-key/manual validation with real photos.
-- Local “face-safe restore” is conservative Pillow smoothing/detail, not a dedicated face restoration model.
+- Local Pillow enhance remains in code for tests/legacy fallback, but the user-facing AI Studio flow is OpenAI-first.
 - Background scenes support foreground photo/frame motion while the background stays stable; fonsiz scenes still use the existing zoompan-style full-photo pipeline.
 - Drag-and-drop is optional and only activates when `tkinterdnd2` is present; the dependency is intentionally not added to `requirements.txt`.
 - First releases are unsigned, so Windows SmartScreen may show a warning until code signing is added.

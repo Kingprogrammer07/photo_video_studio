@@ -19,6 +19,15 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 import pvs_storage
 
+AI_PRESETS = {
+    "auto": "Avto professional",
+    "vivid": "Ranglarni jonlantir",
+    "restore": "Xira rasmni tiklash",
+    "faces": "Yuzlarni tabiiy saqlash",
+    "album": "To'y/album",
+    "ad": "Reklama",
+}
+
 
 @dataclass(frozen=True)
 class EnhanceSettings:
@@ -105,6 +114,34 @@ def _apply_warmth(im: Image.Image, amount: float) -> Image.Image:
     return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), "RGB")
 
 
+def normalize_ai_preset(preset: str | None) -> str:
+    preset = (preset or "auto").lower()
+    return preset if preset in AI_PRESETS else "auto"
+
+
+def build_openai_prompt(settings: EnhanceSettings, preset: str | None = "auto") -> str:
+    preset = normalize_ai_preset(preset)
+    goals = {
+        "auto": "Make balanced professional photo corrections for a family slideshow.",
+        "vivid": "Make colors lively and clean while keeping skin tones natural.",
+        "restore": "Restore a soft, faded, or low-quality photo with better clarity and cleaner exposure.",
+        "faces": "Prioritize natural faces and identity preservation above all other changes.",
+        "album": "Create a warm elegant wedding or family album look without changing clothing, people, or setting.",
+        "ad": "Make the image polished, clear, and suitable for a tasteful product or business promo.",
+    }
+    upscale = str(settings.upscale or "auto")
+    return (
+        f"{goals[preset]} Preserve every person's identity, face, clothing, pose, "
+        "background, composition, and all important objects. Do not add, remove, "
+        "replace, beautify into a different person, or invent details. "
+        f"Adjustment intent: brightness {settings.brightness:.2f}, contrast {settings.contrast:.2f}, "
+        f"saturation {settings.saturation:.2f}, warmth {settings.warmth:.2f}, "
+        f"sharpness {settings.sharpness:.2f}, denoise {settings.denoise:.2f}, "
+        f"upscale {upscale}, face-safe restore {'on' if settings.face_restore else 'off'}. "
+        "Return a natural enhanced version of the same photo."
+    )
+
+
 def enhance_image(
     image: Image.Image,
     settings: EnhanceSettings,
@@ -187,24 +224,20 @@ def openai_enhance(
     *,
     model: str = "gpt-image-2.5-sunburst",
     quality: str = "medium",
+    preset: str = "auto",
+    settings: EnhanceSettings | None = None,
 ) -> Path:
     """Use OpenAI image editing to enhance a photo while preserving people."""
     if not api_key.strip():
         raise RuntimeError("OpenAI API key kiritilmagan.")
 
-    prompt = (
-        "Enhance this family/photo for a respectful slideshow video. Preserve every "
-        "person's identity, face, clothing, pose, background, and composition. Improve "
-        "exposure, natural color, contrast, sharpness, and mild noise. Upscale only if "
-        "needed. Do not add, remove, or replace people or objects."
-    )
+    prompt = build_openai_prompt(settings or EnhanceSettings(), preset)
     fields = {
         "model": model,
         "prompt": prompt,
         "quality": quality,
         "size": "auto",
         "output_format": "jpeg",
-        "response_format": "b64_json",
     }
     body, boundary = _multipart_body(fields, [("image", Path(input_path))])
     request = urllib.request.Request(

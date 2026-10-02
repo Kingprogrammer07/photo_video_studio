@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 import pvs_storage as Store
 
-VERSION = "1"
+VERSION = "2"
 WIDE = (1920, 1080)
 VERTICAL = (1080, 1920)
 
@@ -208,7 +208,14 @@ def _payload(tpl: StarterTemplate, background: Path) -> dict:
         "grade": tpl.grade,
         "transition_type": tpl.transition,
         "kb_intensity": "normal",
+        "motion_preset": "auto",
         "vignette": "auto",
+        "text_enabled": True,
+        "show_title_card": True,
+        "show_captions": True,
+        "show_outro_card": True,
+        "text_template": "ad" if tpl.pattern == "business" else ("eid" if tpl.pattern == "lantern" else ("memory" if tpl.pattern == "classic" else ("wedding" if tpl.pattern == "arch" else "family"))),
+        "font_preset": "default",
         "resolution": "Vertical 1080x1920" if tpl.size[1] > tpl.size[0] else "1440p (2K)",
         "fps": 30,
         "preset": "fast",

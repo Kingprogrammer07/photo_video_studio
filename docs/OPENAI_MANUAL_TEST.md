@@ -18,7 +18,7 @@ Use this checklist only with a real OpenAI API key and non-sensitive test photos
 1. Leave the AI consent switch off.
 2. Add one test photo in `Slideshow`.
 3. Open `AI Rasm Studio`.
-4. Click `OpenAI bilan tanlangan rasm`.
+4. Click `OpenAI bilan tanlangan rasmni tuzatish`.
 5. Confirm the app asks for consent before sending the photo online.
 6. Decline once and confirm no cache file is created.
 7. Try again, accept consent, and confirm the setting is saved.
@@ -27,7 +27,7 @@ Use this checklist only with a real OpenAI API key and non-sensitive test photos
 
 1. Choose one photo.
 2. Set a visible AI/pro adjustment, for example higher saturation and sharpness.
-3. Run `OpenAI bilan tanlangan rasm`.
+3. Choose an `AI preset`, then run `OpenAI bilan tanlangan rasmni tuzatish`.
 4. Confirm the photo row shows `[AI]`.
 5. Confirm the draggable `Oldin/Keyin` divider displays a visible difference.
 6. Confirm the enhanced file appears under `%APPDATA%\PhotoVideoStudio\cache\ai\`.
@@ -46,4 +46,4 @@ Use this checklist only with a real OpenAI API key and non-sensitive test photos
 2. Use a wrong key and confirm the UI shows a readable error.
 3. Disable internet and confirm the bottom status changes to `Internet: Offline`.
 4. Run OpenAI enhance offline and confirm the app warns that AI requires internet without changing the original photo.
-5. Confirm local enhancement still works without internet.
+5. Confirm slideshow, templates, render preview, and Video Tools still work without internet.

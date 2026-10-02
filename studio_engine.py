@@ -69,12 +69,29 @@ def resolve_photo_durations(count, default_duration, overrides=None):
         result.append(max(0.4, value))
     return result
 
+def resolve_text_flags(config):
+    text_enabled = bool(config.get("text_enabled", True))
+    return {
+        "text_enabled": text_enabled,
+        "show_title_card": bool(config.get("show_title_card", text_enabled)) and text_enabled,
+        "show_outro_card": bool(config.get("show_outro_card", text_enabled)) and text_enabled,
+        "show_captions": bool(config.get("show_captions", text_enabled)) and text_enabled,
+    }
+
 _CAND = {
  "script":  ["chancery.pfb","C:/Windows/Fonts/GABRIOLA.TTF","/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf"],
  "serif":   ["palladio.pfb","C:/Windows/Fonts/georgia.ttf","/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"],
  "serif_it":["palladio_italic.pfb","C:/Windows/Fonts/georgiai.ttf","/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf"],
  "book":    ["gothic_book.pfb","C:/Windows/Fonts/segoeui.ttf","C:/Windows/Fonts/arial.ttf","/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"],
  "demi":    ["gothic_demi.pfb","C:/Windows/Fonts/segoeuib.ttf","C:/Windows/Fonts/arialbd.ttf","/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
+}
+FONT_PRESETS = ["default", "classic", "modern", "serif", "script"]
+FONT_UZ = {
+    "default": "Uslubdagi font",
+    "classic": "Klassik",
+    "modern": "Zamonaviy",
+    "serif": "Kitobiy",
+    "script": "Bezakli",
 }
 _fc={}
 def font(role,size):
@@ -85,6 +102,25 @@ def font(role,size):
         try: f=ImageFont.truetype(p,int(size)); _fc[k]=f; return f
         except Exception: continue
     f=ImageFont.load_default(); _fc[k]=f; return f
+
+def apply_font_preset(st, preset):
+    preset = (preset or "default").lower()
+    if preset not in FONT_PRESETS:
+        preset = "default"
+    if preset == "default":
+        return st
+    out = dict(st)
+    fonts = dict(st.get("fonts", {}))
+    if preset == "classic":
+        fonts.update(title="serif", kicker="book", sub="serif", cap="serif_it")
+    elif preset == "modern":
+        fonts.update(title="demi", kicker="book", sub="book", cap="demi")
+    elif preset == "serif":
+        fonts.update(title="serif", kicker="serif", sub="serif", cap="serif_it")
+    elif preset == "script":
+        fonts.update(title="script", kicker="book", sub="serif", cap="script")
+    out["fonts"] = fonts
+    return out
 
 STYLES={
  "Iliq oltin (kinematik)": dict(key="warm", grade="neutral", card_bg="dark", vignette=True,
@@ -478,6 +514,13 @@ def _trans_list(ttype,n):
     return tr
 def stitch(clips,durs,D,ttype,music,crf,preset,fps,out,cancel_event=None):
     n=len(clips); cum=0.0; off=[]
+    if n <= 0:
+        raise RuntimeError("Video uchun clip topilmadi.")
+    if n == 1:
+        _run(["ffmpeg","-y","-i",clips[0],"-i",music,"-map","0:v","-map","1:a",
+              "-c:v","libx264","-pix_fmt","yuv420p","-r",str(fps),"-crf",str(crf),"-preset",preset,
+              "-c:a","aac","-b:a","192k","-shortest","-movflags","+faststart",out], cancel_event)
+        return
     for k in range(n-1): cum+=durs[k]; off.append(round(cum-(k+1)*D,3))
     tr=_trans_list(ttype,n-1)
     inp=[]
@@ -494,7 +537,7 @@ def build_video(config, progress=lambda p,m: None, cancel_event=None):
     import music as MU
     _check_cancel(cancel_event)
     if find_ffmpeg() is None: raise RuntimeError(MSG_NOFF)
-    st=STYLES[config["style"]]
+    st=apply_font_preset(STYLES[config["style"]], config.get("font_preset", "default"))
     W,H=RES.get(config.get("resolution","1440p (2K)"),(2560,1440)); fps=int(config.get("fps",30))
     D=float(config.get("transition_dur",0.7)); PDUR=float(config.get("photo_duration",4.5))
     TDUR=float(config.get("title_duration",6.0)); ODUR=float(config.get("outro_duration",4.5))
@@ -505,6 +548,12 @@ def build_video(config, progress=lambda p,m: None, cancel_event=None):
     vig=config.get("vignette","auto"); vig=st["vignette"] if vig in ("auto",None,"") else bool(vig)
     ttype=config.get("transition_type","auto"); ttype=st["transition"] if ttype in ("auto",None,"") else ttype
     photos=config["photos"]; caps=config.get("captions",{}); out=config["output"]
+    text_flags=resolve_text_flags(config)
+    show_title=text_flags["show_title_card"]
+    show_outro=text_flags["show_outro_card"]
+    show_captions=text_flags["show_captions"]
+    if not show_captions:
+        caps={}
     enhanced=config.get("enhanced_photos") or {}
     pdurs=resolve_photo_durations(len(photos), PDUR, config.get("photo_durations"))
     pmotions=list(config.get("photo_motions") or [])
@@ -542,10 +591,13 @@ def build_video(config, progress=lambda p,m: None, cancel_event=None):
         if txt: cp=os.path.join(work,f"c{int(k)}.png"); build_caption(txt,st,W,H,cp); cap_png[int(k)]=cp
     progress(18,"Kartalar...")
     _check_cancel(cancel_event)
-    tc=os.path.join(work,"tc.png"); build_title_card(config,st,W,H,tc)
-    oc=os.path.join(work,"oc.png"); build_outro_card(config,st,W,H,oc)
-    tclip=os.path.join(work,"title.mkv"); render_card_clip(tc,TDUR,W,H,fps,False,st["card_bg"],tclip,cancel_event)
-    oclip=os.path.join(work,"outro.mkv"); render_card_clip(oc,ODUR,W,H,fps,True,st["card_bg"],oclip,cancel_event)
+    tclip=oclip=None
+    if show_title:
+        tc=os.path.join(work,"tc.png"); build_title_card(config,st,W,H,tc)
+        tclip=os.path.join(work,"title.mkv"); render_card_clip(tc,TDUR,W,H,fps,False,st["card_bg"],tclip,cancel_event)
+    if show_outro:
+        oc=os.path.join(work,"oc.png"); build_outro_card(config,st,W,H,oc)
+        oclip=os.path.join(work,"outro.mkv"); render_card_clip(oc,ODUR,W,H,fps,True,st["card_bg"],oclip,cancel_event)
     progress(30,"Sahnalar...")
     sclips=[]
     for i,gp in enumerate(graded):
@@ -559,7 +611,12 @@ def build_video(config, progress=lambda p,m: None, cancel_event=None):
         sclips.append(sc)
         progress(30+int(48*(i+1)/len(graded)),f"Sahna: {i+1}/{len(graded)}")
     photo_durs=[_pdur(i) for i in range(len(sclips))]
-    clips=[tclip]+sclips+[oclip]; durs=[TDUR]+photo_durs+[ODUR]
+    clips=[]; durs=[]
+    if tclip:
+        clips.append(tclip); durs.append(TDUR)
+    clips.extend(sclips); durs.extend(photo_durs)
+    if oclip:
+        clips.append(oclip); durs.append(ODUR)
     total=round(sum(durs)-(len(durs)-1)*D,3)
     progress(82,"Musiqa...")
     _check_cancel(cancel_event)

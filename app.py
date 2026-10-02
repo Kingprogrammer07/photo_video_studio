@@ -19,7 +19,7 @@ import tkinter as tk
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import customtkinter as ctk
-    from PIL import Image, ImageOps, ImageTk
+    from PIL import Image, ImageDraw, ImageFilter, ImageOps, ImageTk
 except Exception:
     r = tk.Tk()
     r.withdraw()
@@ -80,6 +80,23 @@ KB_LAT = {"subtle": "Yumshoq", "normal": "O'rta", "strong": "Kuchli"}
 VIG_LAT = {"auto": "Avto", "on": "Yoqilgan", "off": "O'chirilgan"}
 QUAL_LAT = {"16": "Yuqori (sekin)", "18": "Yaxshi", "21": "O'rta", "24": "Tez (kichik)"}
 LAYOUT_LAT = {"center": "Markaz", "left": "Chap", "right": "O'ng", "top": "Yuqori", "bottom": "Past", "fill": "Katta"}
+TEXT_TEMPLATES = ["family", "wedding", "eid", "memory", "ad", "minimal"]
+TEXT_TEMPLATE_UZ = {
+    "family": "Oilaviy",
+    "wedding": "To'y",
+    "eid": "Hayit",
+    "memory": "Xotira",
+    "ad": "Reklama",
+    "minimal": "Minimal",
+}
+TEXT_TEMPLATE_VALUES = {
+    "family": ("Oilaviy xotira", "MEHR BILAN", "Oilamizning quvonchi", "SEVGI BILAN"),
+    "wedding": ("To'y muborak", "BAHTLI KUN", "Sevgi va hurmat bilan", "SEVGI BILAN"),
+    "eid": ("Hayit muborak", "EZGU NIYATLAR", "Xonadoningiz fayzga to'lsin", "DUO BILAN"),
+    "memory": ("Xotira", "YODDA QOLGAN ONLAR", "Mehr bilan eslaymiz", "HURMAT BILAN"),
+    "ad": ("Mahsulot nomi", "REKLAMA", "Qisqa, aniq va ishonchli", "BOG'LANING"),
+    "minimal": ("", "", "", ""),
+}
 ROW_BG = ("#e8e8ea", "#2b2b30")
 ROW_SEL = ("#cfe0f7", "#35507a")
 
@@ -125,7 +142,10 @@ class App:
         self.online = False
         self.update_info: updater.UpdateInfo | None = None
         self.preview_after = None
+        self.preview_anim_after = None
         self.preview_job = 0
+        self.preview_frames = []
+        self.preview_frame_idx = 0
         self.ai_preview_after = None
         self.ai_preview_job = 0
         self.cancel_event = threading.Event()
@@ -164,6 +184,12 @@ class App:
         self.grain_var = tk.BooleanVar(value=False)
         self.bloom_var = tk.BooleanVar(value=False)
         self.cap_var = tk.StringVar()
+        self.text_enabled_var = tk.BooleanVar(value=False)
+        self.show_title_var = tk.BooleanVar(value=True)
+        self.show_captions_var = tk.BooleanVar(value=True)
+        self.show_outro_var = tk.BooleanVar(value=True)
+        self.text_template_var = tk.StringVar(value=TEXT_TEMPLATE_UZ["family"])
+        self.font_preset_var = tk.StringVar(value=SE.FONT_UZ["default"])
         self.slide_global_var = tk.BooleanVar(value=True)
         self.slide_duration_var = tk.DoubleVar(value=4.5)
         self.slide_motion_var = tk.StringVar(value="")
@@ -186,6 +212,7 @@ class App:
         self.ai_upscale = tk.StringVar(value="auto")
         self.ai_face = tk.BooleanVar(value=True)
         self.ai_compare = tk.DoubleVar(value=50)
+        self.ai_preset_var = tk.StringVar(value=AI.AI_PRESETS["auto"])
 
         self.provider_var = tk.StringVar(value=self.settings.get("provider", "openai"))
         self.model_var = tk.StringVar(value=self.settings.get("openai_model", "gpt-image-2.5-sunburst"))
@@ -287,12 +314,14 @@ class App:
         ctk.CTkButton(pb, text=self.t("O'chirish"), width=110, height=42, font=self.FB, fg_color="#5a5a5a", command=self.remove_photo).pack(side="left", padx=6)
         ctk.CTkButton(pb, text="↑", width=46, height=42, font=self.FB, fg_color="#5a5a5a", command=lambda: self.move(-1)).pack(side="left")
         ctk.CTkButton(pb, text="↓", width=46, height=42, font=self.FB, fg_color="#5a5a5a", command=lambda: self.move(1)).pack(side="left", padx=(4, 0))
-        ctk.CTkLabel(left, text=self.t("Ko'rinish"), font=self.FB).pack(anchor="w", padx=12, pady=(8, 2))
+        pr = ctk.CTkFrame(left, fg_color="transparent")
+        pr.pack(fill="x", padx=10, pady=(8, 2))
+        ctk.CTkLabel(pr, text=self.t("Ko'rinish"), font=self.FB).pack(side="left")
+        ctk.CTkButton(pr, text=self.t("Aniq ko'rish"), width=120, height=32, fg_color="#5a5a5a", command=self.update_preview_exact).pack(side="right")
         pv = ctk.CTkFrame(left)
         pv.pack(fill="x", padx=10, pady=(0, 8))
         self.preview_lbl = ctk.CTkLabel(pv, text=self.t("Rasm tanlanmagan"), height=245, font=self.F, fg_color=("#dcdce0", "#232327"), corner_radius=8)
         self.preview_lbl.pack(fill="x", padx=6, pady=6)
-        ctk.CTkButton(pv, text=self.t("Aniq ko'rish"), height=36, fg_color="#5a5a5a", command=self.update_preview_exact).pack(fill="x", padx=6, pady=(0, 6))
         cf = ctk.CTkFrame(left, fg_color="transparent")
         cf.pack(fill="x", padx=10, pady=(0, 10))
         ctk.CTkLabel(cf, text=self.t("Shu rasm ustidagi yozuv:"), font=self.F).pack(anchor="w")
@@ -330,6 +359,14 @@ class App:
 
         h2("Uslub va matnlar")
         self._opttr(parent, "Uslub", list(SE.STYLES.keys()), {k: k for k in SE.STYLES}, "style", extra=self._schedule_preview_update)
+        ctk.CTkSwitch(parent, text=self.t("Matn qo'shilsin"), variable=self.text_enabled_var, font=self.FB, command=self._text_enabled_changed).pack(anchor="w", padx=10, pady=(10, 0))
+        ctk.CTkSwitch(parent, text=self.t("Boshlanish titri"), variable=self.show_title_var, font=self.F, command=self._schedule_preview_update).pack(anchor="w", padx=10, pady=(6, 0))
+        ctk.CTkSwitch(parent, text=self.t("Har rasm yozuvi"), variable=self.show_captions_var, font=self.F, command=self._schedule_preview_update).pack(anchor="w", padx=10, pady=(6, 0))
+        ctk.CTkSwitch(parent, text=self.t("Yakun titri"), variable=self.show_outro_var, font=self.F, command=self._schedule_preview_update).pack(anchor="w", padx=10, pady=(6, 0))
+        ctk.CTkLabel(parent, text=self.t("Matn shabloni"), anchor="w", font=self.F).pack(fill="x", padx=8, pady=(10, 0))
+        ctk.CTkOptionMenu(parent, values=[self.t(TEXT_TEMPLATE_UZ[k]) for k in TEXT_TEMPLATES], variable=self.text_template_var, height=38, font=self.F, command=self._text_template_changed).pack(fill="x", padx=8)
+        ctk.CTkLabel(parent, text=self.t("Font"), anchor="w", font=self.F).pack(fill="x", padx=8, pady=(10, 0))
+        ctk.CTkOptionMenu(parent, values=[self.t(SE.FONT_UZ[k]) for k in SE.FONT_PRESETS], variable=self.font_preset_var, height=38, font=self.F, command=lambda _v: self._schedule_preview_update()).pack(fill="x", padx=8)
         ent("Sarlavha", self.title_var)
         ent("Yuqori yozuv", self.kicker_var)
         ent("Sana", self.date_var)
@@ -350,11 +387,11 @@ class App:
         h2("Effektlar")
         self._opttr(parent, "Rang", SE.GRADES, SE.GRADE_UZ, "grade", extra=self._schedule_preview_update, gallery=self.gallery_grade)
         self._opttr(parent, "O'tish effekti", SE.TRANSITIONS, SE.TRANS_UZ, "trans", gallery=self.gallery_trans)
-        self._opttr(parent, "Harakat (zoom) kuchi", ["subtle", "normal", "strong"], KB_LAT, "kb")
+        self._opttr(parent, "Harakat (zoom) kuchi", ["subtle", "normal", "strong"], KB_LAT, "kb", extra=self._schedule_preview_update)
         self._opttr(parent, "Umumiy rasm harakati", SE.MOTION_PRESETS, SE.MOTION_UZ, "motion", extra=self._schedule_preview_update)
-        self._opttr(parent, "Vignette", ["auto", "on", "off"], VIG_LAT, "vig")
-        ctk.CTkSwitch(parent, text=self.t("Film grain (don)"), variable=self.grain_var, font=self.F).pack(anchor="w", padx=10, pady=(10, 0))
-        ctk.CTkSwitch(parent, text=self.t("Bloom (porlash)"), variable=self.bloom_var, font=self.F).pack(anchor="w", padx=10, pady=(8, 0))
+        self._opttr(parent, "Vignette", ["auto", "on", "off"], VIG_LAT, "vig", extra=self._schedule_preview_update)
+        ctk.CTkSwitch(parent, text=self.t("Film grain (don)"), variable=self.grain_var, font=self.F, command=self._schedule_preview_update).pack(anchor="w", padx=10, pady=(10, 0))
+        ctk.CTkSwitch(parent, text=self.t("Bloom (porlash)"), variable=self.bloom_var, font=self.F, command=self._schedule_preview_update).pack(anchor="w", padx=10, pady=(8, 0))
 
         h2("Sifat va format")
         optplain("O'lcham", list(SE.RES.keys()), self.res_var)
@@ -404,6 +441,40 @@ class App:
 
     def _motion_label(self, key: str) -> str:
         return self.t(SE.MOTION_UZ.get(key if key in SE.MOTION_PRESETS else "auto", SE.MOTION_UZ["auto"]))
+
+    def _font_preset_key(self) -> str:
+        label = self.font_preset_var.get()
+        for key in SE.FONT_PRESETS:
+            if label == self.t(SE.FONT_UZ[key]):
+                return key
+        return "default"
+
+    def _text_template_key(self) -> str:
+        label = self.text_template_var.get()
+        for key in TEXT_TEMPLATES:
+            if label == self.t(TEXT_TEMPLATE_UZ[key]):
+                return key
+        return "family"
+
+    def _text_enabled_changed(self) -> None:
+        if self.text_enabled_var.get():
+            self.show_title_var.set(True)
+            self.show_captions_var.set(True)
+            self.show_outro_var.set(True)
+        self._schedule_preview_update()
+
+    def _text_template_changed(self, label=None) -> None:
+        key = self._text_template_key()
+        title, kicker, subtitle, outro = TEXT_TEMPLATE_VALUES.get(key, TEXT_TEMPLATE_VALUES["family"])
+        self.title_var.set(title)
+        self.kicker_var.set(kicker)
+        self.osub_var.set(subtitle)
+        self.okick_var.set(outro)
+        self.text_enabled_var.set(key != "minimal")
+        self.show_title_var.set(key != "minimal")
+        self.show_captions_var.set(key != "minimal")
+        self.show_outro_var.set(key != "minimal")
+        self._schedule_preview_update()
 
     def _schedule_preview_update(self, delay: int = 140) -> None:
         if self.preview_after is not None:
@@ -495,7 +566,7 @@ class App:
         mid.pack(fill="both", expand=True, padx=10, pady=8)
         self.bg_list = ctk.CTkScrollableFrame(mid, label_text=self.t("Backgroundlar"))
         self.bg_list.pack(side="left", fill="both", expand=True, padx=(0, 8))
-        self.template_list = ctk.CTkScrollableFrame(mid, width=360, label_text=self.t("Shablonlar"))
+        self.template_list = ctk.CTkScrollableFrame(mid, width=470, label_text=self.t("Shablonlar"))
         self.template_list.pack(side="right", fill="y")
 
     def _build_ai_tab(self, parent) -> None:
@@ -503,7 +574,7 @@ class App:
         left.pack(side="left", fill="both", expand=True, padx=(10, 6), pady=10)
         right = ctk.CTkScrollableFrame(parent, width=390, label_text=self.t("Professional panel"))
         right.pack(side="right", fill="y", padx=(6, 10), pady=10)
-        self.ai_title = ctk.CTkLabel(left, text=self.t("Rasm tanlang va AI/Professional sozlashni qo'llang"), font=self.FH)
+        self.ai_title = ctk.CTkLabel(left, text=self.t("Rasm tanlang va OpenAI bilan professional sozlang"), font=self.FH)
         self.ai_title.pack(anchor="w", padx=12, pady=(12, 4))
         self.ai_canvas = tk.Canvas(left, height=430, bd=0, highlightthickness=0, bg="#232327")
         self.ai_canvas.pack(fill="both", expand=True, padx=12, pady=8)
@@ -516,7 +587,9 @@ class App:
             ctk.CTkLabel(right, text=self.t(label), font=self.F, anchor="w").pack(fill="x", padx=8, pady=(10, 0))
             ctk.CTkSlider(right, from_=lo, to=hi, variable=var, command=lambda _v: self._update_ai_preview_only()).pack(fill="x", padx=8)
 
-        ctk.CTkLabel(right, text=self.t("Bu panel original rasmni o'zgartirmaydi."), text_color="#8a8a8a", font=self.F).pack(fill="x", padx=8, pady=(8, 4))
+        ctk.CTkLabel(right, text=self.t("Bu panel original rasmni o'zgartirmaydi. Natija cache'da saqlanadi."), text_color="#8a8a8a", font=self.F).pack(fill="x", padx=8, pady=(8, 4))
+        ctk.CTkLabel(right, text=self.t("AI preset"), font=self.F, anchor="w").pack(fill="x", padx=8, pady=(10, 0))
+        ctk.CTkOptionMenu(right, values=[self.t(AI.AI_PRESETS[k]) for k in AI.AI_PRESETS], variable=self.ai_preset_var, height=38).pack(fill="x", padx=8)
         slider("Yorug'lik", self.ai_brightness, 0.65, 1.45)
         slider("Kontrast", self.ai_contrast, 0.7, 1.6)
         slider("Rang to'yinganligi", self.ai_saturation, 0.5, 1.8)
@@ -526,9 +599,8 @@ class App:
         ctk.CTkLabel(right, text=self.t("Upscale"), font=self.F, anchor="w").pack(fill="x", padx=8, pady=(10, 0))
         ctk.CTkOptionMenu(right, values=["auto", "none", "HD", "2K", "4K"], variable=self.ai_upscale, height=38, command=lambda _v: self._update_ai_preview_only()).pack(fill="x", padx=8)
         ctk.CTkSwitch(right, text=self.t("Face-safe restore"), variable=self.ai_face, font=self.F, command=self._update_ai_preview_only).pack(anchor="w", padx=10, pady=(10, 4))
-        ctk.CTkButton(right, text=self.t("Tanlangan rasmni yaxshilash"), height=42, font=self.FB, command=lambda: self.apply_ai(False)).pack(fill="x", padx=8, pady=(10, 4))
-        ctk.CTkButton(right, text=self.t("Hammasini yaxshilash"), height=42, font=self.FB, fg_color="#3a7d44", command=lambda: self.apply_ai(True)).pack(fill="x", padx=8, pady=4)
-        ctk.CTkButton(right, text=self.t("OpenAI bilan tanlangan rasm"), height=42, font=self.FB, fg_color="#6b4fa3", command=self.apply_openai_selected).pack(fill="x", padx=8, pady=(14, 4))
+        ctk.CTkButton(right, text=self.t("OpenAI bilan tanlangan rasmni tuzatish"), height=42, font=self.FB, fg_color="#6b4fa3", command=self.apply_openai_selected).pack(fill="x", padx=8, pady=(14, 4))
+        ctk.CTkButton(right, text=self.t("Hammasini OpenAI bilan tuzatish"), height=42, font=self.FB, fg_color="#3a7d44", command=lambda: self.apply_openai_all()).pack(fill="x", padx=8, pady=4)
         ctk.CTkButton(right, text=self.t("Originalga qaytish"), height=38, fg_color="#5a5a5a", command=self.reset_selected_ai).pack(fill="x", padx=8, pady=4)
 
     def _build_video_tools_tab(self, parent) -> None:
@@ -598,6 +670,8 @@ class App:
     def _lang(self, val):
         self._save_current_item_controls()
         old_cur = self.cur
+        text_key = self._text_template_key()
+        font_key = self._font_preset_key()
         old_tab = None
         if hasattr(self, "tabs") and hasattr(self, "tab_names"):
             try:
@@ -608,16 +682,19 @@ class App:
                         break
             except Exception:
                 old_tab = None
-        for after_id in (self.preview_after, self.ai_preview_after):
+        for after_id in (self.preview_after, self.preview_anim_after, self.ai_preview_after):
             if after_id is not None:
                 try:
                     self.root.after_cancel(after_id)
                 except Exception:
                     pass
         self.preview_after = None
+        self.preview_anim_after = None
         self.ai_preview_after = None
         self.ai_preview_job += 1
         self.lang = "lat" if val == "Lotin" else "cyr"
+        self.text_template_var.set(self.t(TEXT_TEMPLATE_UZ.get(text_key, TEXT_TEMPLATE_UZ["family"])))
+        self.font_preset_var.set(self.t(SE.FONT_UZ.get(font_key, SE.FONT_UZ["default"])))
         for w in self.root.winfo_children():
             w.destroy()
         self._build()
@@ -885,19 +962,118 @@ class App:
                 pass
         return item["ppil"]
 
+    def _preview_motion_key(self):
+        if self.cur is not None and 0 <= self.cur < len(self.items):
+            item_motion = self.items[self.cur].get("motion_preset")
+            if item_motion in SE.MOTION_PRESETS and item_motion != "auto":
+                return item_motion
+        return self.sel.get("motion", "auto")
+
+    def _preview_effects(self, im, t):
+        out = im.convert("RGB")
+        W, H = out.size
+        vig = self.sel["vig"]
+        use_vig = vig == "on" or (vig == "auto" and SE.STYLES[self.sel["style"]]["vignette"])
+        if self.bloom_var.get():
+            blur = out.filter(ImageFilter.GaussianBlur(max(3, int(H * 0.018))))
+            out = Image.blend(out, blur, 0.18)
+        if use_vig:
+            mask = Image.new("L", (W, H), 0)
+            d = ImageDraw.Draw(mask)
+            margin = int(min(W, H) * 0.10)
+            d.ellipse([-margin, -margin, W + margin, H + margin], fill=255)
+            mask = mask.filter(ImageFilter.GaussianBlur(int(min(W, H) * 0.18)))
+            dark = Image.new("RGB", (W, H), (0, 0, 0))
+            out = Image.composite(out, dark, mask.point(lambda v: int(v * 0.68)))
+        if self.grain_var.get():
+            noise = Image.effect_noise((W, H), 10).convert("L")
+            grain = Image.merge("RGB", (noise, noise, noise))
+            out = Image.blend(out, grain, 0.08)
+        return out
+
+    def _caption_preview(self, im):
+        if not (self.text_enabled_var.get() and self.show_captions_var.get() and self.cur is not None):
+            return im
+        text = self.items[self.cur].get("caption", "").strip()
+        if not text:
+            return im
+        out = im.convert("RGBA")
+        d = ImageDraw.Draw(out)
+        st = SE.apply_font_preset(SE.STYLES[self.sel["style"]], self._font_preset_key())
+        font = SE.font(st["fonts"].get("cap", "demi"), max(18, int(out.height * 0.055)))
+        y = int(out.height * 0.82)
+        try:
+            bbox = d.textbbox((0, 0), text, font=font)
+            tw = bbox[2] - bbox[0]
+        except Exception:
+            tw = len(text) * 12
+        x = max(16, (out.width - tw) // 2)
+        d.rounded_rectangle([x - 12, y - 8, x + tw + 12, y + 38], radius=10, fill=(0, 0, 0, 110))
+        d.text((x, y), text, font=font, fill=(255, 255, 255, 255))
+        return out.convert("RGB")
+
+    def _build_preview_frames(self):
+        if self.cur is None:
+            return []
+        item = self.items[self.cur]
+        src = SE.grade(self._preview_source(item), self._rgrade())
+        W, H = 640, 360
+        bg_path = self.bg_path.get()
+        has_bg = bool(bg_path and os.path.isfile(bg_path))
+        frame = self._photo_frame()
+        motion = self._preview_motion_key()
+        amt = SE.KB_LEVELS.get(self.sel["kb"], 0.15)
+        spec = SE._motion_spec(motion, self.cur or 0, amt, W, H)
+        steps = 12 if motion != "still" else 1
+        frames = []
+        bg = None
+        if has_bg:
+            bg = SE._cover(Image.open(bg_path), W, H).convert("RGBA")
+            box = SE._photo_box(W, H, self.sel["layout"], self.photo_scale.get())
+            panel = SE._photo_panel(src, box, frame)
+        else:
+            panel = SE._photo_panel(src, (0, 0, int(W * 0.78), int(H * 0.78)), {"border": False, "shadow": False, "radius": 0})
+        for n in range(steps):
+            t = 0 if steps == 1 else n / (steps - 1)
+            scale = float(spec["start_scale"]) + (float(spec["end_scale"]) - float(spec["start_scale"])) * t
+            dx = float(spec["start_dx"]) + (float(spec["end_dx"]) - float(spec["start_dx"])) * t
+            dy = float(spec["start_dy"]) + (float(spec["end_dy"]) - float(spec["start_dy"])) * t
+            canvas = bg.copy() if bg is not None else Image.new("RGBA", (W, H), (18, 18, 22, 255))
+            pw, ph = max(1, int(panel.width * scale)), max(1, int(panel.height * scale))
+            moving = panel.resize((pw, ph), Image.LANCZOS)
+            x = int(W / 2 - pw / 2 + dx)
+            y = int(H / 2 - ph / 2 + dy)
+            canvas.alpha_composite(moving, (x, y))
+            out = self._caption_preview(canvas.convert("RGB"))
+            frames.append(self._preview_effects(out, t))
+        return frames
+
     def _update_preview(self):
         if self.cur is None:
             return
         try:
-            src = self._preview_source(self.items[self.cur])
-            g = SE.grade(src, self._rgrade())
-            if self.bg_path.get() and os.path.isfile(self.bg_path.get()):
-                g = SE.compose_background_scene(g, self.bg_path.get(), 640, 360, self.sel["layout"], self.photo_scale.get(), self._photo_frame())
-            im = ctk.CTkImage(light_image=g, dark_image=g, size=g.size)
-            self._prev_img = im
-            self.preview_lbl.configure(image=im, text="")
+            self.preview_frames = self._build_preview_frames()
+            self.preview_frame_idx = 0
+            self._animate_preview()
         except Exception:
             pass
+
+    def _animate_preview(self):
+        if self.preview_anim_after is not None:
+            try:
+                self.root.after_cancel(self.preview_anim_after)
+            except Exception:
+                pass
+            self.preview_anim_after = None
+        if not self.preview_frames:
+            return
+        frame = self.preview_frames[self.preview_frame_idx % len(self.preview_frames)]
+        im = ctk.CTkImage(light_image=frame, dark_image=frame, size=frame.size)
+        self._prev_img = im
+        self.preview_lbl.configure(image=im, text="")
+        self.preview_frame_idx = (self.preview_frame_idx + 1) % len(self.preview_frames)
+        if len(self.preview_frames) > 1:
+            self.preview_anim_after = self.root.after(95, self._animate_preview)
 
     def update_preview_exact(self):
         if self.cur is None:
@@ -929,6 +1105,7 @@ class App:
                     canvas = Image.new("RGB", (W, H), (18, 18, 22))
                     canvas.paste(image, ((W - image.width) // 2, (H - image.height) // 2))
                     image = canvas
+                image = self._caption_preview(self._preview_effects(image, 1.0))
                 image.thumbnail((760, 430), Image.LANCZOS)
                 self.root.after(0, self._finish_exact_preview, job_id, image, "")
             except Exception as exc:
@@ -976,7 +1153,7 @@ class App:
             return
         item = self.items[self.cur]
         path = item["path"]
-        settings = self._enhance_settings()
+        enhanced_path = item.get("enhanced_path") if item.get("enhanced_path") and os.path.isfile(item.get("enhanced_path", "")) else ""
         self.ai_preview_job += 1
         job_id = self.ai_preview_job
 
@@ -985,7 +1162,12 @@ class App:
                 with Image.open(path) as src:
                     original = ImageOps.exif_transpose(src).convert("RGB")
                 original.thumbnail((1200, 1200), Image.LANCZOS)
-                enhanced = AI.enhance_image(original.copy(), settings, preview_mode=True)
+                if enhanced_path:
+                    with Image.open(enhanced_path) as enh:
+                        enhanced = ImageOps.exif_transpose(enh).convert("RGB")
+                    enhanced.thumbnail((1200, 1200), Image.LANCZOS)
+                else:
+                    enhanced = original.copy()
                 self.root.after(0, self._finish_ai_preview_job, job_id, path, original, enhanced, "")
             except Exception as exc:
                 self.root.after(0, self._finish_ai_preview_job, job_id, path, None, None, str(exc))
@@ -1270,6 +1452,12 @@ class App:
             "kb_intensity": self.sel["kb"],
             "motion_preset": self.sel["motion"],
             "vignette": self.sel["vig"],
+            "text_enabled": bool(self.text_enabled_var.get()),
+            "show_title_card": bool(self.show_title_var.get()),
+            "show_captions": bool(self.show_captions_var.get()),
+            "show_outro_card": bool(self.show_outro_var.get()),
+            "text_template": self._text_template_key(),
+            "font_preset": self._font_preset_key(),
             "resolution": self.res_var.get(),
             "fps": int(self.fps_var.get()),
             "preset": self.preset_var.get(),
@@ -1326,25 +1514,29 @@ class App:
         for w in self.template_list.winfo_children():
             w.destroy()
         refs = []
-        for row_meta in Store.list_templates(with_meta=True):
+        for col in range(2):
+            self.template_list.grid_columnconfigure(col, weight=1)
+        for idx, row_meta in enumerate(Store.list_templates(with_meta=True)):
             p = row_meta["path"]
             name = row_meta.get("name") or p.stem
-            row = ctk.CTkFrame(self.template_list)
-            row.pack(fill="x", padx=6, pady=5)
+            row = ctk.CTkFrame(self.template_list, corner_radius=8)
+            row.grid(row=idx // 2, column=idx % 2, sticky="nsew", padx=6, pady=6)
             preview = str(row_meta.get("preview_path") or "")
             if preview and os.path.isfile(preview):
                 try:
                     im = ImageOps.exif_transpose(Image.open(preview)).convert("RGB")
-                    im.thumbnail((92, 58), Image.LANCZOS)
-                    cimg = ctk.CTkImage(light_image=im, dark_image=im, size=im.size)
+                    im.thumbnail((165, 92), Image.LANCZOS)
+                    cimg = ctk.CTkImage(light_image=im, dark_image=im, size=(165, 92))
                     refs.append(cimg)
-                    ctk.CTkLabel(row, image=cimg, text="").pack(side="left", padx=6, pady=6)
+                    ctk.CTkLabel(row, image=cimg, text="").pack(fill="x", padx=8, pady=(8, 4))
                 except Exception:
                     pass
-            ctk.CTkLabel(row, text=str(name), anchor="w", font=self.F).pack(side="left", fill="x", expand=True, padx=8, pady=8)
-            ctk.CTkButton(row, text=self.t("O'chirish"), width=82, fg_color="#8a3c3c", command=lambda pp=p: self.delete_template_confirm(pp)).pack(side="right", padx=(0, 4))
-            ctk.CTkButton(row, text=self.t("Nomlash"), width=82, fg_color="#5a5a5a", command=lambda pp=p: self.rename_template_prompt(pp)).pack(side="right", padx=(0, 4))
-            ctk.CTkButton(row, text=self.t("Ochish"), width=90, command=lambda pp=p: self.load_template(pp)).pack(side="right", padx=6)
+            ctk.CTkLabel(row, text=str(name), anchor="w", font=self.FB, wraplength=170).pack(fill="x", padx=8, pady=(2, 6))
+            actions = ctk.CTkFrame(row, fg_color="transparent")
+            actions.pack(fill="x", padx=8, pady=(0, 8))
+            ctk.CTkButton(actions, text=self.t("Ochish"), height=32, command=lambda pp=p: self.load_template(pp)).pack(fill="x", pady=(0, 4))
+            ctk.CTkButton(actions, text=self.t("Nomlash"), height=30, fg_color="#5a5a5a", command=lambda pp=p: self.rename_template_prompt(pp)).pack(side="left", fill="x", expand=True, padx=(0, 4))
+            ctk.CTkButton(actions, text=self.t("O'chirish"), height=30, fg_color="#8a3c3c", command=lambda pp=p: self.delete_template_confirm(pp)).pack(side="left", fill="x", expand=True)
         self.template_list._refs = refs
 
     def rename_template_prompt(self, path):
@@ -1381,6 +1573,20 @@ class App:
             if self.sel["motion"] not in SE.MOTION_PRESETS:
                 self.sel["motion"] = "auto"
             self.sel["vig"] = data.get("vignette", self.sel["vig"])
+            inferred_text = any(str(data.get(k, "")).strip() for k in ("title", "kicker", "outro_kicker", "subtitle"))
+            text_enabled = bool(data.get("text_enabled", inferred_text))
+            self.text_enabled_var.set(text_enabled)
+            self.show_title_var.set(bool(data.get("show_title_card", text_enabled)))
+            self.show_captions_var.set(bool(data.get("show_captions", text_enabled)))
+            self.show_outro_var.set(bool(data.get("show_outro_card", text_enabled)))
+            text_template = data.get("text_template", "family")
+            if text_template not in TEXT_TEMPLATES:
+                text_template = "family"
+            self.text_template_var.set(self.t(TEXT_TEMPLATE_UZ[text_template]))
+            font_preset = data.get("font_preset", "default")
+            if font_preset not in SE.FONT_PRESETS:
+                font_preset = "default"
+            self.font_preset_var.set(self.t(SE.FONT_UZ[font_preset]))
             self.sel["layout"] = data.get("photo_layout", self.sel["layout"])
             self.res_var.set(data.get("resolution", self.res_var.get()))
             self.fps_var.set(str(data.get("fps", self.fps_var.get())))
@@ -1432,69 +1638,95 @@ class App:
             face_restore=bool(self.ai_face.get()),
         )
 
+    def _ai_preset_key(self) -> str:
+        label = self.ai_preset_var.get()
+        for key, text in AI.AI_PRESETS.items():
+            if label == self.t(text):
+                return key
+        return "auto"
+
     def _ai_targets(self, all_photos: bool):
         if all_photos:
             return list(range(len(self.items)))
         return [] if self.cur is None else [self.cur]
 
     def apply_ai(self, all_photos: bool):
-        targets = self._ai_targets(all_photos)
-        if not targets:
-            messagebox.showwarning("", self.t("Avval rasm tanlang."))
-            return
-        self._start_ai_job(targets, "local")
+        self.apply_openai_all() if all_photos else self.apply_openai_selected()
 
-    def apply_openai_selected(self):
-        if self.cur is None:
-            messagebox.showwarning("", self.t("Avval rasm tanlang."))
-            return
+    def _ensure_openai_ready(self) -> str | None:
         if not self.online:
             status = connectivity.check_online(timeout=2.0)
             self._set_connectivity(status)
             if not status.online:
-                messagebox.showwarning("OpenAI", self.t("AI uchun internet kerak. Offline holatda local sozlashlardan foydalaning."))
-                return
+                messagebox.showwarning("OpenAI", self.t("AI uchun internet kerak. Offline holatda rasm va video funksiyalari ishlayveradi."))
+                return None
         if not self.consent_var.get():
-            ok = messagebox.askyesno(self.t("AI rozilik"), self.t("OpenAI ishlaganda tanlangan rasm internet orqali AI xizmatiga yuboriladi. Davom etamizmi?"))
+            ok = messagebox.askyesno(self.t("AI rozilik"), self.t("OpenAI ishlaganda rasm internet orqali AI xizmatiga yuboriladi. Davom etamizmi?"))
             if not ok:
-                return
+                return None
             self.consent_var.set(True)
             self.save_settings()
         key = Store.get_api_key("openai")
         if not key:
             messagebox.showwarning("OpenAI", self.t("Sozlamalarda OpenAI API key saqlang."))
-            return
-        self._start_ai_job([self.cur], "openai")
+            return None
+        return key
 
-    def _start_ai_job(self, targets, mode):
+    def apply_openai_all(self):
+        targets = self._ai_targets(True)
+        if not targets:
+            messagebox.showwarning("", self.t("Avval rasm tanlang."))
+            return
+        key = self._ensure_openai_ready()
+        if key:
+            self._start_ai_job(targets, "openai", key)
+
+    def apply_openai_selected(self):
+        if self.cur is None:
+            messagebox.showwarning("", self.t("Avval rasm tanlang."))
+            return
+        key = self._ensure_openai_ready()
+        if key:
+            self._start_ai_job([self.cur], "openai", key)
+
+    def _start_ai_job(self, targets, mode, key=""):
         if self.busy:
             return
         self.busy = True
         self.cancel_event.clear()
+        settings = self._enhance_settings()
+        model = self.model_var.get().strip() or "gpt-image-2.5-sunburst"
+        quality = self.openai_quality_var.get()
+        preset = self._ai_preset_key()
         self.status.configure(text=self.t("AI ishlayapti..."))
         self.gen_btn.configure(state="disabled")
         self.prev_btn.configure(state="disabled")
         self.cancel_btn.configure(state="normal")
-        threading.Thread(target=self._ai_worker, args=(targets, mode), daemon=True).start()
+        threading.Thread(target=self._ai_worker, args=(targets, mode, key, settings, model, quality, preset), daemon=True).start()
         self.root.after(120, self._poll)
 
-    def _ai_worker(self, targets, mode):
+    def _ai_worker(self, targets, mode, key="", settings=None, model="", quality="medium", preset="auto"):
         try:
-            settings = self._enhance_settings()
-            key = Store.get_api_key("openai") if mode == "openai" else ""
+            settings = settings or AI.EnhanceSettings()
+            model = model or "gpt-image-2.5-sunburst"
             for n, idx in enumerate(targets, 1):
                 if self.cancel_event.is_set():
                     self.q.put(("cancelled", 0, self.t("Bekor qilindi"), False))
                     return
                 item = self.items[idx]
-                provider = "openai" if mode == "openai" else "local"
-                model = self.model_var.get() if mode == "openai" else "pillow-local"
-                out = AI.cache_path(item["path"], settings, provider, model)
+                provider = "openai"
+                cache_model = f"{model}:{quality}:{preset}"
+                out = AI.cache_path(item["path"], settings, provider, cache_model)
                 if not out.exists():
-                    if mode == "openai":
-                        AI.openai_enhance(item["path"], out, key, model=self.model_var.get(), quality=self.openai_quality_var.get())
-                    else:
-                        AI.enhance_local(item["path"], out, settings)
+                    AI.openai_enhance(
+                        item["path"],
+                        out,
+                        key,
+                        model=model,
+                        quality=quality,
+                        preset=preset,
+                        settings=settings,
+                    )
                 if self.cancel_event.is_set():
                     self.q.put(("cancelled", 0, self.t("Bekor qilindi"), False))
                     return
@@ -1677,6 +1909,12 @@ class App:
             enhanced_photos=enhanced,
             photo_durations=photo_durations,
             photo_motions=photo_motions,
+            text_enabled=bool(self.text_enabled_var.get()),
+            show_title_card=bool(self.show_title_var.get()),
+            show_captions=bool(self.show_captions_var.get()),
+            show_outro_card=bool(self.show_outro_var.get()),
+            text_template=self._text_template_key(),
+            font_preset=self._font_preset_key(),
             style=self.sel["style"],
             title=self.title_var.get(),
             kicker=self.kicker_var.get(),
