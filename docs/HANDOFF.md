@@ -41,7 +41,9 @@ API keys are not stored in JSON. On Windows, `pvs_storage.py` uses Windows Crede
 - `tiny_to_big` now defaults to a gentler `0.45 -> 1.10` scale and slower easing. Users can adjust start scale, end scale, motion speed, and X/Y drift globally or per selected slide.
 - `build_video(config)` accepts `photo_durations`, `photo_motions`, and `photo_motion_settings`. Missing or invalid durations fall back to global `photo_duration`; unknown motion presets fall back to `auto`; invalid motion setting values are clamped.
 - `build_video(config)` accepts `text_enabled`, `show_title_card`, `show_outro_card`, `show_captions`, and `font_preset`. When title/outro are disabled, those clips are not rendered; one-clip videos mux without xfade.
+- User-selected music is looped during final muxing so short audio files do not cut the video before later photos appear.
 - Slideshow live preview is debounced and uses a lightweight animated PIL loop for motion/effect visibility. The `Aniq ko'rish` button renders a more faithful still frame in a worker thread.
+- The selected slide duration can be entered directly in the `Ushbu slide sekund` field after turning off `Global vaqtni ishlatish`.
 - AI Studio supports free local enhancement plus OpenAI enhancement. Sliders and presets build either local Pillow adjustments or an OpenAI edit prompt; before/after shows the latest cached result when available.
 - OpenAI default quality for new installs is `low`. Batch OpenAI enhancement shows an estimated uncached cost before sending photos; cache hits cost `$0.00` in the app estimate.
 - Each AI attempt is appended to `ai_history.jsonl` with provider, model, quality, preset, photo path/name, cache hit, status, estimated cost, output path, and sanitized error text. API keys and prompts are not logged.
@@ -67,9 +69,9 @@ $env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src";
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1 -SkipInstaller
 ```
 
-Result: `35 passed`. PyInstaller onedir build completed and bundled ffmpeg was copied.
+Result: `36 passed`. PyInstaller onedir build completed and bundled ffmpeg was copied.
 
-Also verified real ffmpeg smoke renders with temporary photos/backgrounds after cancel-aware, motion, and text-toggle changes. The latest smoke covered custom `tiny_to_big` motion settings with a stable background in `%TEMP%`.
+Also verified real ffmpeg smoke renders with temporary photos/backgrounds after cancel-aware, motion, and text-toggle changes. The latest smoke covered short user audio looping through all slides and custom `tiny_to_big` motion settings with 30fps background output in `%TEMP%`.
 
 ## Git Status
 

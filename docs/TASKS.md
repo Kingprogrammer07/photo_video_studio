@@ -45,12 +45,16 @@ Last updated: 2026-10-02
 - Added OpenAI batch cost confirmation and default `low` quality for new installs.
 - Restored user-facing free local enhancement buttons for selected/all photos.
 - Added tests for motion settings, render config propagation, AI history JSONL, and cache-aware cost estimates.
+- Fixed final muxing so short user-selected music loops instead of cutting the video before later photos appear.
+- Added a direct `Ushbu slide sekund` entry field for selected-slide duration overrides.
+- Added FPS normalization to background foreground-photo motion for smoother rendered animation.
 
 ## Next High-Value Tasks
 
 - Manually validate OpenAI enhance with a real API key using `docs/OPENAI_MANUAL_TEST.md`.
 - Compare app-estimated OpenAI cost against real OpenAI dashboard usage after a live-key test.
 - Manually verify live motion preview smoothness on the target Windows laptop.
+- Manually verify exported motion smoothness on the target Windows laptop with several FPS choices.
 - Install Inno Setup and run full `build_exe.bat` to produce `release\PhotoVideoStudioSetup-0.3.0.exe`.
 - Create first GitHub Release with `scripts\publish_release.ps1`, then test in-app update check against that release.
 - Test drag-and-drop on a machine with `tkinterdnd2` installed.

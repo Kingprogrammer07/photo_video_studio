@@ -541,7 +541,7 @@ def render_background_motion_scene(gp,bg_path,cap_png,dur,i,W,H,fps,grain,bloom,
     scale_expr=f"{ss:.5f}+({es-ss:.5f})*{progress}"
     x_expr=f"{cx:.3f}-overlay_w/2+({sdx:.3f}+({edx-sdx:.3f})*{progress})"
     y_expr=f"{cy:.3f}-overlay_h/2+({sdy:.3f}+({edy-sdy:.3f})*{progress})"
-    parts.append(f"[1:v]format=rgba,scale=w='iw*({scale_expr})':h='ih*({scale_expr})':eval=frame[p]")
+    parts.append(f"[1:v]fps={fps},format=rgba,scale=w='iw*({scale_expr})':h='ih*({scale_expr})':eval=frame[p]")
     parts.append(f"[{last}][p]overlay=x='{x_expr}':y='{y_expr}':eval=frame[o0]")
     last="o0"
     if cap_png:
@@ -570,7 +570,7 @@ def stitch(clips,durs,D,ttype,music,crf,preset,fps,out,cancel_event=None):
     if n <= 0:
         raise RuntimeError("Video uchun clip topilmadi.")
     if n == 1:
-        _run(["ffmpeg","-y","-i",clips[0],"-i",music,"-map","0:v","-map","1:a",
+        _run(["ffmpeg","-y","-i",clips[0],"-stream_loop","-1","-i",music,"-map","0:v","-map","1:a",
               "-c:v","libx264","-pix_fmt","yuv420p","-r",str(fps),"-crf",str(crf),"-preset",preset,
               "-c:a","aac","-b:a","192k","-shortest","-movflags","+faststart",out], cancel_event)
         return
@@ -578,7 +578,7 @@ def stitch(clips,durs,D,ttype,music,crf,preset,fps,out,cancel_event=None):
     tr=_trans_list(ttype,n-1)
     inp=[]
     for c in clips: inp+=["-i",c]
-    inp+=["-i",music]
+    inp+=["-stream_loop","-1","-i",music]
     parts=[]; prev="0:v"
     for k in range(1,n):
         lbl=f"x{k}"; parts.append(f"[{prev}][{k}:v]xfade=transition={tr[k-1]}:duration={D}:offset={off[k-1]}[{lbl}]"); prev=lbl

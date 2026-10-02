@@ -28,6 +28,7 @@
 - Added AI cost summary, recent history view, CSV export, and history clear controls in Settings.
 - Added OpenAI batch cost confirmation and cache-aware cost estimates.
 - Added user-facing free local enhancement buttons for selected/all photos.
+- Added a direct `Ushbu slide sekund` input field for selected slide duration overrides.
 - Created vNext tabbed app shell with `Slideshow`, `Fonlar/Shablonlar`, `AI Rasm Studio`, `Video Tools`, and `Sozlamalar`.
 - Added AppData-backed settings, custom background library, template JSON storage, and AI cache directories.
 - Added secure API key storage using Windows Credential Manager, with optional keyring fallback.
@@ -54,6 +55,8 @@
 - `tiny_to_big` motion now starts at `0.45` scale and ends at `1.10` scale by default, with slower easing.
 - New OpenAI installs default to `low` quality for lower cost.
 - OpenAI input photos are temporarily resized for economy before upload; original files are not changed.
+- User-selected music is now looped during final muxing so short audio files do not cut the video before later slides.
+- Background foreground-photo motion now normalizes the moving layer to the requested FPS for smoother rendered animation.
 - Replaced the old single-screen `app.py` with a larger tabbed CustomTkinter app.
 - Extended `studio_engine.build_video()` to accept background and enhanced-photo config fields.
 - Updated `build_exe.bat` hidden imports for new modules.
@@ -67,10 +70,12 @@
 
 - `python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py starter_pack.py connectivity.py runtime_paths.py updater.py version.py video_converter\src\video_converter\converter.py`
 - `$env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src"; python -m pytest tests video_converter\tests`
-- Result: `35 passed`.
+- Result: `36 passed`.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1 -SkipInstaller`
 - Result: PyInstaller onedir build completed; `dist\PhotoVideoStudio\PhotoVideoStudio.exe` and `dist\PhotoVideoStudio\ffmpeg\bin\ffmpeg.exe` exist.
 - Real ffmpeg smoke render with temporary images/background completed successfully after cancel-aware ffmpeg changes.
 - Real ffmpeg smoke render with temporary images/background completed successfully for `left_to_center` motion and per-slide duration.
 - Real ffmpeg smoke renders completed for matnsiz title/outro-off output and matnli background-motion output.
 - Real ffmpeg smoke render completed for custom `tiny_to_big` motion settings with background output in `%TEMP%`.
+- Real ffmpeg smoke render confirmed a 0.35s custom audio file no longer cuts a 3-photo video early.
+- Real ffmpeg smoke render confirmed custom background motion exports at 30fps.

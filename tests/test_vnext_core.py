@@ -189,7 +189,24 @@ def test_stitch_single_clip_skips_xfade(monkeypatch, tmp_path):
     se.stitch([str(clip)], [1.0], 0.7, "fade", str(music), 23, "veryfast", 24, str(tmp_path / "out.mp4"))
     cmd = calls[0]
     assert "-filter_complex" not in cmd
+    assert "-stream_loop" in cmd
     assert "-map" in cmd
+
+
+def test_stitch_loops_short_music_for_multi_clip(monkeypatch, tmp_path):
+    import studio_engine as se
+
+    calls = []
+    monkeypatch.setattr(se, "_run", lambda cmd, cancel_event=None: calls.append(cmd))
+    clips = [str(tmp_path / f"clip{i}.mkv") for i in range(3)]
+    music = tmp_path / "short.wav"
+    se.stitch(clips, [1.4, 1.4, 1.4], 0.5, "fade", str(music), 23, "veryfast", 24, str(tmp_path / "out.mp4"))
+    cmd = calls[0]
+    assert "-filter_complex" in cmd
+    loop_at = cmd.index("-stream_loop")
+    assert cmd[loop_at + 1] == "-1"
+    assert cmd[loop_at + 2] == "-i"
+    assert cmd[loop_at + 3] == str(music)
 
 
 def test_background_and_template_metadata_ops(tmp_path, monkeypatch):

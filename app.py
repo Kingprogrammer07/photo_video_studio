@@ -195,6 +195,7 @@ class App:
         self.font_preset_var = tk.StringVar(value=SE.FONT_UZ["default"])
         self.slide_global_var = tk.BooleanVar(value=True)
         self.slide_duration_var = tk.DoubleVar(value=4.5)
+        self.slide_duration_entry_var = tk.StringVar(value="4.5")
         self.slide_motion_var = tk.StringVar(value="")
         self.slide_motion_global_var = tk.BooleanVar(value=True)
         self.slide_motion_start_scale = tk.DoubleVar(value=0.45)
@@ -347,9 +348,14 @@ class App:
         per.pack(fill="x", padx=10, pady=(0, 10))
         self.slide_global_switch = ctk.CTkSwitch(per, text=self.t("Global vaqtni ishlatish"), variable=self.slide_global_var, font=self.F, command=self._toggle_slide_duration)
         self.slide_global_switch.pack(anchor="w")
-        self.slide_duration_lbl = ctk.CTkLabel(per, text="4.5 s", font=self.F)
-        self.slide_duration_lbl.pack(anchor="e")
-        self.slide_duration_slider = ctk.CTkSlider(per, from_=1.0, to=12.0, number_of_steps=44, variable=self.slide_duration_var, command=self._slide_duration_changed)
+        dur_row = ctk.CTkFrame(per, fg_color="transparent")
+        dur_row.pack(fill="x", pady=(2, 0))
+        ctk.CTkLabel(dur_row, text=self.t("Ushbu slide sekund"), font=self.F).pack(side="left")
+        self.slide_duration_entry = ctk.CTkEntry(dur_row, textvariable=self.slide_duration_entry_var, width=80, height=32, font=self.F, justify="center")
+        self.slide_duration_entry.pack(side="right")
+        self.slide_duration_entry.bind("<Return>", lambda _e: self._slide_duration_entry_changed())
+        self.slide_duration_entry.bind("<FocusOut>", lambda _e: self._slide_duration_entry_changed())
+        self.slide_duration_slider = ctk.CTkSlider(per, from_=1.0, to=60.0, number_of_steps=118, variable=self.slide_duration_var, command=self._slide_duration_changed)
         self.slide_duration_slider.pack(fill="x")
         ctk.CTkLabel(per, text=self.t("Ushbu rasm harakati"), font=self.F, anchor="w").pack(fill="x", pady=(8, 0))
         self.slide_motion_menu = ctk.CTkOptionMenu(per, values=[self.t(SE.MOTION_UZ[k]) for k in SE.MOTION_PRESETS], variable=self.slide_motion_var, height=36, command=self._slide_motion_changed)
@@ -640,29 +646,47 @@ class App:
         self.dur_lbl.configure(text=f"{seconds:.1f} s")
         if self.cur is not None and self.slide_global_var.get():
             self.slide_duration_var.set(seconds)
-            self.slide_duration_lbl.configure(text=f"{seconds:.1f} s")
+            self.slide_duration_entry_var.set(f"{seconds:.1f}")
+
+    def _set_slide_duration_state(self, state: str) -> None:
+        self.slide_duration_slider.configure(state=state)
+        if hasattr(self, "slide_duration_entry"):
+            self.slide_duration_entry.configure(state=state)
+
+    def _set_slide_seconds(self, seconds: float, save: bool = True) -> None:
+        seconds = max(1.0, min(60.0, float(seconds)))
+        self.slide_duration_var.set(seconds)
+        self.slide_duration_entry_var.set(f"{seconds:.1f}")
+        if save and self.cur is not None and not self.slide_global_var.get():
+            self.items[self.cur]["duration_override"] = seconds
+            self._refresh_row_text(self.cur)
 
     def _toggle_slide_duration(self) -> None:
         if self.cur is None:
             return
         if self.slide_global_var.get():
             self.items[self.cur]["duration_override"] = None
-            self.slide_duration_var.set(float(self.dur_var.get()))
+            self._set_slide_seconds(float(self.dur_var.get()), save=False)
             state = "disabled"
         else:
             value = float(self.slide_duration_var.get() or self.dur_var.get())
             self.items[self.cur]["duration_override"] = value
             state = "normal"
-        self.slide_duration_slider.configure(state=state)
-        self.slide_duration_lbl.configure(text=f"{float(self.slide_duration_var.get()):.1f} s")
+        self._set_slide_duration_state(state)
+        self._set_slide_seconds(float(self.slide_duration_var.get()), save=not self.slide_global_var.get())
         self._refresh_row_text(self.cur)
 
     def _slide_duration_changed(self, value) -> None:
-        seconds = float(value)
-        self.slide_duration_lbl.configure(text=f"{seconds:.1f} s")
-        if self.cur is not None and not self.slide_global_var.get():
-            self.items[self.cur]["duration_override"] = seconds
-            self._refresh_row_text(self.cur)
+        self._set_slide_seconds(float(value), save=True)
+
+    def _slide_duration_entry_changed(self) -> None:
+        if self.cur is None:
+            return
+        try:
+            seconds = float(str(self.slide_duration_entry_var.get()).replace(",", "."))
+        except Exception:
+            seconds = float(self.slide_duration_var.get() or self.dur_var.get())
+        self._set_slide_seconds(seconds, save=not self.slide_global_var.get())
 
     def _slide_motion_changed(self, label) -> None:
         if self.cur is None:
@@ -683,9 +707,8 @@ class App:
         use_global = override is None
         self.slide_global_var.set(use_global)
         seconds = float(self.dur_var.get() if use_global else override)
-        self.slide_duration_var.set(seconds)
-        self.slide_duration_lbl.configure(text=f"{seconds:.1f} s")
-        self.slide_duration_slider.configure(state="disabled" if use_global else "normal")
+        self._set_slide_seconds(seconds, save=False)
+        self._set_slide_duration_state("disabled" if use_global else "normal")
         motion = item.get("motion_preset") or self.sel.get("motion", "auto")
         if motion not in SE.MOTION_PRESETS:
             motion = "auto"
@@ -714,6 +737,8 @@ class App:
         self._save_caption()
         if self.cur is None or not (0 <= self.cur < len(self.items)):
             return
+        if not self.slide_global_var.get():
+            self._slide_duration_entry_changed()
         item = self.items[self.cur]
         item["duration_override"] = None if self.slide_global_var.get() else float(self.slide_duration_var.get())
         item["motion_preset"] = self._motion_key_from_label(self.slide_motion_var.get())
