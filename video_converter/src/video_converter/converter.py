@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
+try:
+    import runtime_paths
+except Exception:
+    runtime_paths = None
+
 SUPPORTED_FORMATS = ("mp4", "mkv", "avi", "mov", "webm", "gif", "mp3", "wav")
 AUDIO_ONLY_FORMATS = frozenset({"mp3", "wav"})
 
@@ -80,6 +85,10 @@ class ConversionResult:
 
 
 def find_ffmpeg() -> str:
+    if runtime_paths is not None:
+        bundled = runtime_paths.find_bundled_ffmpeg()
+        if bundled:
+            return bundled
     path = shutil.which("ffmpeg")
     if not path:
         raise FfmpegNotFoundError(

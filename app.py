@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog
 
@@ -26,9 +27,12 @@ except Exception:
     sys.exit(1)
 
 import image_enhance as AI
+import connectivity
 import pvs_storage as Store
 import starter_pack
 import studio_engine as SE
+import updater
+from version import APP_VERSION
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -118,6 +122,8 @@ class App:
         self.cur: int | None = None
         self.q: queue.Queue = queue.Queue()
         self.busy = False
+        self.online = False
+        self.update_info: updater.UpdateInfo | None = None
         self.cancel_event = threading.Event()
         self.vc_cancel_event = threading.Event()
         self.row_frames: list = []
@@ -192,6 +198,7 @@ class App:
         self.FBIG = ctk.CTkFont(size=25, weight="bold")
         self._build()
         self.root.after(200, self._check_ffmpeg)
+        self.root.after(300, self.refresh_connectivity)
 
     def t(self, s: str) -> str:
         return s if self.lang == "lat" else lat2cyr(s)
@@ -201,6 +208,7 @@ class App:
         head = ctk.CTkFrame(self.root, fg_color="transparent")
         head.pack(fill="x", padx=18, pady=(12, 4))
         ctk.CTkLabel(head, text="Photo Video Studio", font=self.FBIG).pack(side="left")
+        ctk.CTkLabel(head, text=f"v{APP_VERSION}", text_color="#8a8a8a", font=self.F).pack(side="left", padx=(8, 0), pady=(8, 0))
         seg = ctk.CTkSegmentedButton(head, values=["Lotin", "Кирил"], font=self.FB, command=self._lang)
         seg.set("Lotin" if self.lang == "lat" else "Кирил")
         seg.pack(side="right")
@@ -250,6 +258,8 @@ class App:
         self.ffrow.pack(fill="x", padx=18, pady=(0, 10))
         self.ff_lbl = ctk.CTkLabel(self.ffrow, text="ffmpeg...", text_color="#8a8a8a", font=self.F)
         self.ff_lbl.pack(side="left")
+        self.net_lbl = ctk.CTkLabel(self.ffrow, text=self.t("Internet: tekshirilmoqda..."), text_color="#8a8a8a", font=self.F)
+        self.net_lbl.pack(side="left", padx=16)
         ctk.CTkButton(self.ffrow, text=self.t("ffmpeg.exe ni ko'rsatish"), width=210, height=34, font=self.F, fg_color="#5a5a5a", command=self.pick_ffmpeg).pack(side="right")
 
     def _build_slideshow_tab(self, parent) -> None:
@@ -464,6 +474,16 @@ class App:
         ctk.CTkOptionMenu(box, values=["low", "medium", "high", "xhigh", "max"], variable=self.openai_quality_var, height=38).pack(fill="x", padx=8)
         ctk.CTkSwitch(box, text=self.t("AI ishlaganda rasm internet orqali yuborilishiga roziman"), variable=self.consent_var, font=self.F, command=self.save_settings).pack(anchor="w", padx=10, pady=(14, 4))
         ctk.CTkButton(box, text=self.t("Sozlamalarni saqlash"), height=40, command=self.save_settings).pack(fill="x", padx=8, pady=(12, 8))
+        ctk.CTkLabel(box, text=self.t("Dastur yangilanishi"), font=self.FB, anchor="w").pack(fill="x", padx=8, pady=(20, 0))
+        ctk.CTkLabel(box, text=f"{self.t('Joriy versiya')}: {APP_VERSION}", text_color="#8a8a8a", font=self.F, anchor="w").pack(fill="x", padx=8, pady=(2, 6))
+        row_update = ctk.CTkFrame(box, fg_color="transparent")
+        row_update.pack(fill="x", padx=8)
+        self.update_btn = ctk.CTkButton(row_update, text=self.t("Yangilanishni tekshirish"), height=38, command=self.check_update)
+        self.update_btn.pack(side="left", fill="x", expand=True)
+        self.download_update_btn = ctk.CTkButton(row_update, text=self.t("Yuklab olish"), height=38, fg_color="#3a7d44", command=self.download_update, state="disabled")
+        self.download_update_btn.pack(side="left", fill="x", expand=True, padx=(6, 0))
+        self.update_status = ctk.CTkLabel(box, text=self.t("GitHub Releases orqali tekshiriladi."), text_color="#8a8a8a", font=self.F, anchor="w")
+        self.update_status.pack(fill="x", padx=8, pady=(6, 4))
         self.settings_status = ctk.CTkLabel(box, text="", font=self.F, anchor="w")
         self.settings_status.pack(fill="x", padx=8, pady=8)
 
@@ -482,6 +502,91 @@ class App:
         else:
             self.ff_lbl.configure(text="ffmpeg: topilmadi", text_color="#e05a5a")
             messagebox.showwarning("ffmpeg", self.t("ffmpeg topilmadi. winget install Gyan.FFmpeg yoki 'ffmpeg.exe ni ko'rsatish'."))
+
+    def refresh_connectivity(self):
+        def worker():
+            status = connectivity.check_online()
+            self.root.after(0, self._set_connectivity, status)
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.root.after(60000, self.refresh_connectivity)
+
+    def _set_connectivity(self, status: connectivity.ConnectivityStatus):
+        self.online = bool(status.online)
+        if hasattr(self, "net_lbl"):
+            if self.online:
+                self.net_lbl.configure(text=self.t("Internet: Online"), text_color="#4caf50")
+            else:
+                self.net_lbl.configure(text=self.t("Internet: Offline"), text_color="#e0a84c")
+
+    def check_update(self):
+        if hasattr(self, "update_btn"):
+            self.update_btn.configure(state="disabled")
+            self.download_update_btn.configure(state="disabled")
+            self.update_status.configure(text=self.t("Yangilanish tekshirilmoqda..."), text_color="#8a8a8a")
+
+        def worker():
+            try:
+                info = updater.check_for_update()
+                self.root.after(0, self._update_check_done, info, "")
+            except Exception as exc:
+                self.root.after(0, self._update_check_done, None, str(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _update_check_done(self, info, error):
+        if hasattr(self, "update_btn"):
+            self.update_btn.configure(state="normal")
+        if error:
+            if hasattr(self, "update_status"):
+                self.update_status.configure(text=self.t("Yangilanish tekshirilmadi. Internetni tekshiring."), text_color="#e05a5a")
+            return
+        self.update_info = info
+        if info and info.available:
+            self.download_update_btn.configure(state="normal")
+            self.update_status.configure(
+                text=f"{self.t('Yangi versiya topildi')}: {info.latest_version}",
+                text_color="#4caf50",
+            )
+        else:
+            self.download_update_btn.configure(state="disabled")
+            self.update_status.configure(text=self.t("Sizda eng yangi versiya."), text_color="#4caf50")
+
+    def download_update(self):
+        info = self.update_info
+        if not info or not info.available:
+            messagebox.showinfo(self.t("Yangilanish"), self.t("Avval yangilanishni tekshiring."))
+            return
+        self.download_update_btn.configure(state="disabled")
+        self.update_status.configure(text=self.t("Setup yuklab olinmoqda..."), text_color="#8a8a8a")
+
+        def worker():
+            try:
+                path = updater.download_update(info)
+                self.root.after(0, self._download_update_done, path, "")
+            except Exception as exc:
+                self.root.after(0, self._download_update_done, None, str(exc))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _download_update_done(self, path, error):
+        if error:
+            if self.update_info and self.update_info.release_url:
+                self.update_status.configure(text=self.t("Yuklab olinmadi. Release sahifasi ochiladi."), text_color="#e05a5a")
+                webbrowser.open(self.update_info.release_url)
+            else:
+                self.update_status.configure(text=self.t("Yuklab olinmadi. Internetni tekshiring."), text_color="#e05a5a")
+            if hasattr(self, "download_update_btn"):
+                self.download_update_btn.configure(state="normal")
+            return
+        self.update_status.configure(text=self.t("Setup ishga tushirilmoqda..."), text_color="#4caf50")
+        try:
+            if platform.system() == "Windows":
+                os.startfile(str(path))
+            else:
+                subprocess.Popen([str(path)])
+        except Exception as exc:
+            messagebox.showerror(self.t("Yangilanish"), str(exc))
 
     def pick_ffmpeg(self):
         p = filedialog.askopenfilename(title="ffmpeg.exe", filetypes=[("ffmpeg", "ffmpeg.exe ffmpeg"), ("*", "*.*")])
@@ -1104,6 +1209,12 @@ class App:
         if self.cur is None:
             messagebox.showwarning("", self.t("Avval rasm tanlang."))
             return
+        if not self.online:
+            status = connectivity.check_online(timeout=2.0)
+            self._set_connectivity(status)
+            if not status.online:
+                messagebox.showwarning("OpenAI", self.t("AI uchun internet kerak. Offline holatda local sozlashlardan foydalaning."))
+                return
         if not self.consent_var.get():
             ok = messagebox.askyesno(self.t("AI rozilik"), self.t("OpenAI ishlaganda tanlangan rasm internet orqali AI xizmatiga yuboriladi. Davom etamizmi?"))
             if not ok:
@@ -1201,6 +1312,12 @@ class App:
 
     def test_api_key(self):
         key = self.key_var.get().strip() or Store.get_api_key("openai")
+        if not self.online:
+            status = connectivity.check_online(timeout=2.0)
+            self._set_connectivity(status)
+            if not status.online:
+                self.settings_status.configure(text=self.t("API key tekshirish uchun internet kerak."), text_color="#e0a84c")
+                return
         self.settings_status.configure(text=self.t("Tekshirilmoqda..."), text_color="#8a8a8a")
 
         def worker():

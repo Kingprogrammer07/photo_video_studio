@@ -10,6 +10,8 @@
 - Added cancel flow for slideshow render, AI enhancement jobs, and Video Tools conversion.
 - Added draggable Canvas-based AI before/after compare view with a vertical divider and labels.
 - Added `docs/OPENAI_MANUAL_TEST.md` for real API-key validation.
+- Added Windows release packaging flow with PyInstaller onedir build, bundled `ffmpeg.exe`, Inno Setup config, and GitHub Releases publish helper.
+- Added app version metadata, online/offline status indicator, OpenAI offline warnings, and manual update check/download through GitHub Releases.
 - Created vNext tabbed app shell with `Slideshow`, `Fonlar/Shablonlar`, `AI Rasm Studio`, `Video Tools`, and `Sozlamalar`.
 - Added AppData-backed settings, custom background library, template JSON storage, and AI cache directories.
 - Added secure API key storage using Windows Credential Manager, with optional keyring fallback.
@@ -27,6 +29,8 @@
 - Extended `pvs_storage.py` with metadata-aware background/template operations and starter-pack install tracking.
 - Made `studio_engine.build_video()` and ffmpeg helpers cancel-aware through an optional `cancel_event`.
 - Made `video_converter.converter.convert()` cancel-aware and return `ConversionResult(False, -1, "Bekor qilindi")` on cancellation.
+- Updated ffmpeg discovery to prefer bundled installer/runtime paths before falling back to system `PATH`.
+- Replaced old onefile `build_exe.bat` with a wrapper around `scripts/build_release.ps1`.
 - Replaced the old single-screen `app.py` with a larger tabbed CustomTkinter app.
 - Extended `studio_engine.build_video()` to accept background and enhanced-photo config fields.
 - Updated `build_exe.bat` hidden imports for new modules.
@@ -38,7 +42,9 @@
 
 ### Verification
 
-- `python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py starter_pack.py video_converter\src\video_converter\converter.py`
+- `python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py starter_pack.py connectivity.py runtime_paths.py updater.py version.py video_converter\src\video_converter\converter.py`
 - `$env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src"; python -m pytest tests video_converter\tests`
-- Result: `24 passed`.
+- Result: `26 passed`.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1 -SkipInstaller`
+- Result: PyInstaller onedir build completed; `dist\PhotoVideoStudio\PhotoVideoStudio.exe` and `dist\PhotoVideoStudio\ffmpeg\bin\ffmpeg.exe` exist.
 - Real ffmpeg smoke render with temporary images/background completed successfully after cancel-aware ffmpeg changes.

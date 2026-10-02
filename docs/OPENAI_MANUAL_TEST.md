@@ -7,10 +7,11 @@ Use this checklist only with a real OpenAI API key and non-sensitive test photos
 ## Setup
 
 1. Run `python app.py`.
-2. Open `Sozlamalar`.
-3. Paste the OpenAI API key and click `Saqlash`.
-4. Click `Tekshirish` and confirm the status says the key works.
-5. Confirm `%APPDATA%\PhotoVideoStudio\settings.json` does not contain the API key.
+2. Confirm the bottom status shows `Internet: Online`.
+3. Open `Sozlamalar`.
+4. Paste the OpenAI API key and click `Saqlash`.
+5. Click `Tekshirish` and confirm the status says the key works.
+6. Confirm `%APPDATA%\PhotoVideoStudio\settings.json` does not contain the API key.
 
 ## Consent
 
@@ -43,5 +44,6 @@ Use this checklist only with a real OpenAI API key and non-sensitive test photos
 
 1. Delete the saved key, then run OpenAI enhance and confirm the app asks for a key.
 2. Use a wrong key and confirm the UI shows a readable error.
-3. Disable internet and confirm the app fails without changing the original photo.
-4. Confirm local enhancement still works without internet.
+3. Disable internet and confirm the bottom status changes to `Internet: Offline`.
+4. Run OpenAI enhance offline and confirm the app warns that AI requires internet without changing the original photo.
+5. Confirm local enhancement still works without internet.

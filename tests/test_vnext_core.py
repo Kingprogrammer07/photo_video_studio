@@ -133,3 +133,24 @@ def test_build_video_cancel_event_stops_before_render():
             {"style": list(se.STYLES.keys())[0], "photos": [], "output": "unused.mp4"},
             cancel_event=cancel_event,
         )
+
+
+def test_updater_version_compare():
+    import updater
+
+    assert updater.is_newer("0.3.1", "0.3.0") is True
+    assert updater.is_newer("v1.0.0", "0.9.9") is True
+    assert updater.is_newer("0.3.0", "0.3.0") is False
+    assert updater.is_newer("0.2.9", "0.3.0") is False
+
+
+def test_studio_engine_prefers_bundled_ffmpeg(monkeypatch, tmp_path):
+    import studio_engine as se
+
+    ffmpeg = tmp_path / "ffmpeg.exe"
+    ffmpeg.write_text("fake", encoding="utf-8")
+    monkeypatch.setattr(se.runtime_paths, "find_bundled_ffmpeg", lambda: str(ffmpeg))
+    monkeypatch.setattr(se.shutil, "which", lambda _name: None)
+    se.FFMPEG = None
+    assert se.find_ffmpeg() == str(ffmpeg)
+    se.FFMPEG = None

@@ -34,6 +34,13 @@ output/*.mp3
 output/*.wav
 *_namuna.mp4
 
+# Build / release artifacts
+build/
+dist/
+release/
+*.spec
+installer/Output/
+
 # vNext runtime data (kept in AppData, never in repo)
 settings.json
 backgrounds/

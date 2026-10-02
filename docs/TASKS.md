@@ -24,10 +24,14 @@ Last updated: 2026-10-02
 - Replaced AI before/after slider preview with a draggable Canvas divider.
 - Added manual OpenAI real-key validation checklist.
 - Added tests for starter pack install, storage metadata operations, render cancel, converter cancel, and template preview metadata.
+- Added release builder scripts, Inno Setup config, bundled ffmpeg lookup, online/offline status, and GitHub Releases update check/download flow.
+- Verified PyInstaller onedir build with bundled `ffmpeg.exe`; full installer compile still needs Inno Setup installed.
 
 ## Next High-Value Tasks
 
 - Manually validate OpenAI enhance with a real API key using `docs/OPENAI_MANUAL_TEST.md`.
+- Install Inno Setup and run full `build_exe.bat` to produce `release\PhotoVideoStudioSetup-0.3.0.exe`.
+- Create first GitHub Release with `scripts\publish_release.ps1`, then test in-app update check against that release.
 - Test drag-and-drop on a machine with `tkinterdnd2` installed.
 - Add Gemini provider adapter after OpenAI flow is stable.
 - Add user-facing starter template category filters if the template list grows.
@@ -40,4 +44,6 @@ Last updated: 2026-10-02
 - Local “face-safe restore” is conservative Pillow smoothing/detail, not a dedicated face restoration model.
 - Background scenes currently keep the background stable; Ken Burns motion is disabled for layered background scenes.
 - Drag-and-drop is optional and only activates when `tkinterdnd2` is present; the dependency is intentionally not added to `requirements.txt`.
+- First releases are unsigned, so Windows SmartScreen may show a warning until code signing is added.
+- Full installer build was not run in this pass because Inno Setup (`iscc`) is not installed on PATH.
 - GitHub repo setup is complete. Future work should commit and push regularly.

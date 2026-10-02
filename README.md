@@ -17,18 +17,25 @@ pip install -r requirements.txt
 python app.py
 ```
 
-**Talab:**
+**Developer talabi:**
 - Python 3.9+
 - **ffmpeg** — PATH da bo'lishi shart. Windows: `winget install Gyan.FFmpeg`
   (tekshirish: `ffmpeg -version`)
 
 ---
 
-## 🖥  Standalone `.exe` (Python'siz ochiladigan)
+## 🖥 Windows installer / `.exe`
 
-Bir marta `build_exe.bat` ni ishga tushiring — `dist\PhotoVideoStudio.exe` yaratiladi.
-Uni istalgan Windows kompyuterda ikki marta bosib ochish mumkin (Python o'rnatish shart emas).
-> Eslatma: ffmpeg baribir tizimда bo'lishi kerak (yoki exe yoniga `ffmpeg.exe` qo'ying).
+Bir marta `build_exe.bat` ni ishga tushiring — PyInstaller app papkasi va Inno Setup mavjud bo'lsa
+`release\PhotoVideoStudioSetup-<version>.exe` yaratiladi.
+
+Installer:
+- o'rnatishdan oldin internetni tekshiradi;
+- `ffmpeg.exe`ni app bilan birga olib boradi;
+- o'rnatilgandan keyin slideshow va Video Tools internetsiz ham ishlaydi;
+- AI/OpenAI funksiyalari uchun internet va foydalanuvchi API key'i kerak.
+
+Release va update jarayoni: `docs\RELEASE.md`.
 
 ---
 
@@ -75,7 +82,9 @@ photo_video_studio/
 ├── music.py          # original pianino generator (2 uslub)
 ├── fonts/            # ichiga joylangan shriftlar
 ├── run.bat           # oson ishga tushirish
-├── build_exe.bat     # standalone .exe yasash
+├── build_exe.bat     # release app/installer yasash
+├── scripts/          # build va GitHub Release yordamchilari
+├── installer/        # Inno Setup konfiguratsiyasi
 ├── requirements.txt
 └── output/           # tayyor videolar
 ```
@@ -105,7 +114,8 @@ Bu — **ffmpeg topilmadi** degani. Yechim:
 3. Agar ffmpeg allaqachon bor bo'lsa — dastur pastidagi **"ffmpeg.exe ni ko'rsatish"**
    tugmasini bosib, `ffmpeg.exe` faylini tanlang.
 
-Dastur ochilganda ffmpeg holatini pastda ko'rsatadi (✔ topildi / ✗ topilmadi).
+Dastur ochilganda ffmpeg holatini pastda ko'rsatadi (✔ topildi / ✗ topilmadi). Installer buildlarda
+ffmpeg app ichida bo'ladi; developer run uchun PATH yoki **"ffmpeg.exe ni ko'rsatish"** tugmasi ishlatiladi.
 
 **Rasm ko'rinishi (preview):** har bir rasm ro'yxatda kichik ko'rinishi (thumbnail) bilan
 chiqadi; tanlangan rasm katta preview'da ko'rinadi. Tartibni **▲ ▼** bilan o'zgartirasiz.

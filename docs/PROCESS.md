@@ -25,11 +25,19 @@ When changing code, update at least one of:
 For normal code changes, run:
 
 ```powershell
-python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py starter_pack.py video_converter\src\video_converter\converter.py
+python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py starter_pack.py connectivity.py runtime_paths.py updater.py version.py video_converter\src\video_converter\converter.py
 $env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src"; python -m pytest tests video_converter\tests
 ```
 
 For render changes, also run a small ffmpeg smoke render with temporary images and a temporary background. Do not write smoke outputs into the repo.
+
+For release/installer changes, also run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1 -SkipInstaller
+```
+
+Run the full installer build only when Inno Setup is installed.
 
 ## Release Notes Discipline
 

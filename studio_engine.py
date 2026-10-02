@@ -8,6 +8,7 @@ TRANSITIONS/_trans_list() (o'tish uchun) ga bitta qator qo'shing. Batafsil: EFFE
 """
 import os, math, tempfile, subprocess, shutil, time, numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
+import runtime_paths
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FONTS_DIR = os.path.join(HERE, "fonts")
@@ -248,6 +249,8 @@ FFMPEG=None
 def find_ffmpeg():
     global FFMPEG
     if FFMPEG and os.path.isfile(FFMPEG): return FFMPEG
+    b=runtime_paths.find_bundled_ffmpeg()
+    if b: FFMPEG=b; return b
     c=shutil.which("ffmpeg")
     if c: FFMPEG=c; return c
     for x in ["C:/ffmpeg/bin/ffmpeg.exe","C:/Program Files/ffmpeg/bin/ffmpeg.exe",

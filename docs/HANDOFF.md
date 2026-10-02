@@ -15,7 +15,9 @@ Photo Video Studio is becoming a simple but powerful Windows desktop studio for 
 - `image_enhance.py` owns local photo enhancement, AI cache keys, OpenAI image-edit integration, and OpenAI API key testing.
 - `pvs_storage.py` owns AppData folders, settings, background import, template JSON, AI cache paths, and secure API key storage.
 - `starter_pack.py` generates 8 procedural, copyright-safe backgrounds/templates and installs them into AppData once.
+- `connectivity.py`, `updater.py`, `runtime_paths.py`, and `version.py` own online/offline status, GitHub Releases update checks, bundled runtime resource lookup, and app version metadata.
 - `video_converter/src/video_converter/converter.py` remains the ffmpeg conversion backend; `app.py` imports it into the `Video Tools` tab.
+- `scripts/build_release.ps1` builds a PyInstaller onedir release, bundles `ffmpeg.exe`, and compiles the Inno installer when Inno Setup is available.
 
 ## Persistent Data
 
@@ -39,6 +41,9 @@ API keys are not stored in JSON. On Windows, `pvs_storage.py` uses Windows Crede
 - Background favorites are stored as path strings in `settings.json`; background image files remain under AppData.
 - Slideshow render, AI jobs, and Video Tools conversion all support cancellation. Render cancellation raises `studio_engine.CancelledError`; converter cancellation returns return code `-1`.
 - Drag-and-drop is optional: it only activates when `tkinterdnd2` is importable and the Tk root exposes DnD methods. The file picker is the supported fallback.
+- Runtime ffmpeg lookup prefers bundled `ffmpeg\bin\ffmpeg.exe`, then falls back to `PATH`.
+- Installer builds are per-user under `%LOCALAPPDATA%\Programs\Photo Video Studio` and require internet before install; after install, render/convert works offline.
+- App updates use GitHub Releases latest release; the app downloads the setup file and lets the user run it manually.
 - OpenAI photo enhance requires a saved API key and explicit user consent because photos are sent to a cloud API.
 - OpenAI image edits use `/v1/images/edits`, multipart field `image`, `response_format=b64_json`, and the model from settings.
 - Real OpenAI image enhancement still needs manual validation with a live key; use `docs/OPENAI_MANUAL_TEST.md`.
@@ -48,11 +53,12 @@ API keys are not stored in JSON. On Windows, `pvs_storage.py` uses Windows Crede
 Latest checks run successfully:
 
 ```powershell
-python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py starter_pack.py video_converter\src\video_converter\converter.py
+python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py starter_pack.py connectivity.py runtime_paths.py updater.py version.py video_converter\src\video_converter\converter.py
 $env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src"; python -m pytest tests video_converter\tests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1 -SkipInstaller
 ```
 
-Result: `24 passed`.
+Result: `26 passed`. PyInstaller onedir build completed and bundled ffmpeg was copied.
 
 Also verified a real ffmpeg smoke render with temporary photos/background after cancel-aware ffmpeg changes. It produced an MP4 in `%TEMP%`.
 
