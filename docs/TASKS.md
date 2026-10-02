@@ -16,6 +16,7 @@ Last updated: 2026-10-02
 - Added tests for settings/templates, AI cache key, local enhance safety, and background scene sizing.
 - Corrected OpenAI image edit multipart payload to use the `image` field and request `b64_json`.
 - Added repo hygiene rules for local diagnostics, runtime data, and generated media.
+- Created public GitHub repository and pushed `main`: https://github.com/Kingprogrammer07/photo_video_studio
 
 ## Next High-Value Tasks
 
@@ -34,4 +35,4 @@ Last updated: 2026-10-02
 - OpenAI enhance is wired through the Images edit endpoint but still needs real API-key/manual validation with real photos.
 - Local “face-safe restore” is conservative Pillow smoothing/detail, not a dedicated face restoration model.
 - Background scenes currently keep the background stable; Ken Burns motion is disabled for layered background scenes.
-- GitHub repo setup is being completed through `gh`.
+- GitHub repo setup is complete. Future work should commit and push regularly.

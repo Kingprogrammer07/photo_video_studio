@@ -2,6 +2,8 @@
 
 Last updated: 2026-10-02
 
+GitHub: https://github.com/Kingprogrammer07/photo_video_studio
+
 ## Product Direction
 
 Photo Video Studio is becoming a simple but powerful Windows desktop studio for users around age 30-55. The product goal is: add photos, choose a beautiful template/background, optionally improve photos with AI/pro controls, and export a polished MP4 without needing Photoshop or a professional editor.
@@ -46,3 +48,9 @@ $env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src";
 Result: `20 passed`.
 
 Also verified a real ffmpeg smoke render with temporary photos/background. It produced an MP4 in `%TEMP%`.
+
+## Git Status
+
+- Local branch: `main`
+- Remote: `origin` -> `https://github.com/Kingprogrammer07/photo_video_studio.git`
+- First public push completed from commit `2d0e325`.
