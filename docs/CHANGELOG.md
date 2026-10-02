@@ -22,6 +22,12 @@
 - Added lightweight animated preview frames for motion, zoom strength, vignette, bloom, and grain.
 - Added 2-column template cards with larger previews in `Fonlar/Shablonlar`.
 - Added OpenAI-first AI Studio presets and prompt building from professional sliders.
+- Added simple motion controls for start scale, end scale, speed, and X/Y drift, with global and per-slide override support.
+- Added `photo_motion_settings` render config support.
+- Added AppData-backed AI usage history (`ai_history.jsonl`) with estimated cost, cache hit, status, output path, and sanitized errors.
+- Added AI cost summary, recent history view, CSV export, and history clear controls in Settings.
+- Added OpenAI batch cost confirmation and cache-aware cost estimates.
+- Added user-facing free local enhancement buttons for selected/all photos.
 - Created vNext tabbed app shell with `Slideshow`, `Fonlar/Shablonlar`, `AI Rasm Studio`, `Video Tools`, and `Sozlamalar`.
 - Added AppData-backed settings, custom background library, template JSON storage, and AI cache directories.
 - Added secure API key storage using Windows Credential Manager, with optional keyring fallback.
@@ -45,6 +51,9 @@
 - `studio_engine.build_video()` can skip title/outro/caption text clips and now handles single-clip final muxing without xfade.
 - Language switching now snapshots and restores selected photos, captions, AI paths, per-slide settings, selected tab, and preview state after UI rebuild.
 - OpenAI image-edit requests now follow current Images API behavior by reading `data[0].b64_json` without sending the deprecated `response_format` field.
+- `tiny_to_big` motion now starts at `0.45` scale and ends at `1.10` scale by default, with slower easing.
+- New OpenAI installs default to `low` quality for lower cost.
+- OpenAI input photos are temporarily resized for economy before upload; original files are not changed.
 - Replaced the old single-screen `app.py` with a larger tabbed CustomTkinter app.
 - Extended `studio_engine.build_video()` to accept background and enhanced-photo config fields.
 - Updated `build_exe.bat` hidden imports for new modules.
@@ -58,9 +67,10 @@
 
 - `python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py starter_pack.py connectivity.py runtime_paths.py updater.py version.py video_converter\src\video_converter\converter.py`
 - `$env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src"; python -m pytest tests video_converter\tests`
-- Result: `33 passed`.
+- Result: `35 passed`.
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1 -SkipInstaller`
 - Result: PyInstaller onedir build completed; `dist\PhotoVideoStudio\PhotoVideoStudio.exe` and `dist\PhotoVideoStudio\ffmpeg\bin\ffmpeg.exe` exist.
 - Real ffmpeg smoke render with temporary images/background completed successfully after cancel-aware ffmpeg changes.
 - Real ffmpeg smoke render with temporary images/background completed successfully for `left_to_center` motion and per-slide duration.
 - Real ffmpeg smoke renders completed for matnsiz title/outro-off output and matnli background-motion output.
+- Real ffmpeg smoke render completed for custom `tiny_to_big` motion settings with background output in `%TEMP%`.

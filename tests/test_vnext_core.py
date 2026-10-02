@@ -106,6 +106,49 @@ def test_motion_preset_unknown_falls_back_to_auto():
     assert se.normalize_motion_preset("left_to_center") == "left_to_center"
     assert se.normalize_motion_preset("missing") == "auto"
     assert se._motion_spec("missing", 0)["preset"] == "auto"
+    tiny = se._motion_spec("tiny_to_big", 0)
+    assert tiny["start_scale"] == pytest.approx(0.45)
+    assert tiny["end_scale"] == pytest.approx(1.10)
+    custom = se._motion_spec(
+        "tiny_to_big",
+        0,
+        settings={"start_scale": 0.3, "end_scale": 1.4, "speed": 0.5, "start_x": -0.2},
+    )
+    assert custom["start_scale"] == pytest.approx(0.3)
+    assert custom["end_scale"] == pytest.approx(1.4)
+    assert custom["speed"] == pytest.approx(0.5)
+    assert custom["start_dx"] == pytest.approx(-384.0)
+
+
+def test_build_video_passes_per_slide_motion_settings(monkeypatch, tmp_path):
+    import studio_engine as se
+
+    src = tmp_path / "photo.jpg"
+    Image.new("RGB", (80, 60), (120, 100, 90)).save(src)
+    captured = {}
+
+    def fake_render_scene(*args, **kwargs):
+        captured["motion"] = kwargs.get("motion") if "motion" in kwargs else args[-2]
+        captured["motion_settings"] = kwargs.get("motion_settings") if "motion_settings" in kwargs else args[-1]
+        Path(args[11]).write_text("clip", encoding="utf-8")
+
+    monkeypatch.setattr(se, "find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(se, "render_scene", fake_render_scene)
+    monkeypatch.setattr(se, "stitch", lambda *_args, **_kwargs: None)
+    se.build_video(
+        {
+            "style": list(se.STYLES.keys())[0],
+            "photos": [str(src)],
+            "output": str(tmp_path / "out.mp4"),
+            "music": str(tmp_path / "music.wav"),
+            "text_enabled": False,
+            "photo_motions": ["tiny_to_big"],
+            "photo_motion_settings": [{"start_scale": 0.5, "end_scale": 1.25, "speed": 0.7}],
+        }
+    )
+    assert captured["motion"] == "tiny_to_big"
+    assert captured["motion_settings"]["start_scale"] == pytest.approx(0.5)
+    assert captured["motion_settings"]["speed"] == pytest.approx(0.7)
 
 
 def test_resolve_photo_durations_uses_overrides_and_minimum():
@@ -178,6 +221,32 @@ def test_background_and_template_metadata_ops(tmp_path, monkeypatch):
     assert not renamed_tpl.exists()
     pvs_storage.delete_background(renamed)
     assert not renamed.exists()
+
+
+def test_ai_history_jsonl_and_cost_estimate_respects_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("PVS_APPDATA", str(tmp_path))
+    import pvs_storage
+    import image_enhance as ai
+
+    importlib.reload(pvs_storage)
+    importlib.reload(ai)
+    src = tmp_path / "photo.jpg"
+    Image.new("RGB", (120, 90), (20, 80, 130)).save(src)
+    settings = ai.EnhanceSettings(upscale="none")
+    estimate = ai.estimate_openai_batch_cost([src], settings, model="gpt-image-2.5-sunburst", quality="low", preset="auto")
+    assert estimate["uncached"] == 1
+    assert estimate["estimated_cost"] > 0
+    out = ai.cache_path(src, settings, "openai", ai.openai_cache_model("gpt-image-2.5-sunburst", "low", "auto"))
+    out.write_bytes(b"cached")
+    cached = ai.estimate_openai_batch_cost([src], settings, model="gpt-image-2.5-sunburst", quality="low", preset="auto")
+    assert cached["cached"] == 1
+    assert cached["estimated_cost"] == 0
+    pvs_storage.append_ai_history({"provider": "openai", "source_path": str(src), "source_name": "photo.jpg", "status": "ok", "estimated_cost": 0.0123})
+    rows = pvs_storage.list_ai_history()
+    assert rows[0]["source_name"] == "photo.jpg"
+    assert rows[0]["estimated_cost"] == pytest.approx(0.0123)
+    pvs_storage.clear_ai_history()
+    assert pvs_storage.list_ai_history() == []
 
 
 def test_starter_pack_installs_once(tmp_path, monkeypatch):

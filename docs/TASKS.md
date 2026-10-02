@@ -38,16 +38,24 @@ Last updated: 2026-10-02
 - Shifted AI Studio user flow to OpenAI-first presets and batch/selected OpenAI enhancement.
 - Updated OpenAI image-edit payload to current docs: base64 response is read from `data[0].b64_json` without sending `response_format`.
 - Added tests for text flags, single-clip stitch, font fallback, starter template text fields, and OpenAI prompt building.
+- Added global and per-slide motion setting controls for start scale, end scale, speed, and X/Y drift.
+- Made `tiny_to_big` gentler by default and added `photo_motion_settings` render support.
+- Added AppData-backed AI usage history at `%APPDATA%\PhotoVideoStudio\ai_history.jsonl` with estimated cost, cache hit, status, and output path.
+- Added AI cost summary, CSV export, and clear controls in Settings.
+- Added OpenAI batch cost confirmation and default `low` quality for new installs.
+- Restored user-facing free local enhancement buttons for selected/all photos.
+- Added tests for motion settings, render config propagation, AI history JSONL, and cache-aware cost estimates.
 
 ## Next High-Value Tasks
 
 - Manually validate OpenAI enhance with a real API key using `docs/OPENAI_MANUAL_TEST.md`.
+- Compare app-estimated OpenAI cost against real OpenAI dashboard usage after a live-key test.
 - Manually verify live motion preview smoothness on the target Windows laptop.
 - Install Inno Setup and run full `build_exe.bat` to produce `release\PhotoVideoStudioSetup-0.3.0.exe`.
 - Create first GitHub Release with `scripts\publish_release.ps1`, then test in-app update check against that release.
 - Test drag-and-drop on a machine with `tkinterdnd2` installed.
 - Add Gemini provider adapter after OpenAI flow is stable.
-- Add an advanced keyframe editor for custom motion paths after preset motion is stable.
+- Add an advanced keyframe editor only if the new simple motion sliders are not enough for real users.
 - Add user-facing starter template category filters if the template list grows.
 - Add installer or portable EXE packaging test.
 - Add UI smoke tests if a Windows GUI test approach is chosen.
@@ -55,7 +63,7 @@ Last updated: 2026-10-02
 ## Known Limitations
 
 - OpenAI enhance is wired through the Images edit endpoint but still needs real API-key/manual validation with real photos.
-- Local Pillow enhance remains in code for tests/legacy fallback, but the user-facing AI Studio flow is OpenAI-first.
+- OpenAI cost values shown in-app are estimates for user guidance; the OpenAI billing dashboard remains the source of truth.
 - Background scenes support foreground photo/frame motion while the background stays stable; fonsiz scenes still use the existing zoompan-style full-photo pipeline.
 - Drag-and-drop is optional and only activates when `tkinterdnd2` is present; the dependency is intentionally not added to `requirements.txt`.
 - First releases are unsigned, so Windows SmartScreen may show a warning until code signing is added.

@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import ssl
+import tempfile
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
@@ -26,6 +27,15 @@ AI_PRESETS = {
     "faces": "Yuzlarni tabiiy saqlash",
     "album": "To'y/album",
     "ad": "Reklama",
+}
+
+OPENAI_ECONOMY_MAX_EDGE = 1536
+OPENAI_QUALITY_COST_ESTIMATE = {
+    "low": 0.012,
+    "medium": 0.028,
+    "high": 0.12,
+    "xhigh": 0.20,
+    "max": 0.30,
 }
 
 
@@ -74,6 +84,54 @@ def cache_path(
     return pvs_storage.ai_cache_dir() / f"{cache_key(path, settings, provider, model)}.jpg"
 
 
+def openai_cache_model(model: str, quality: str, preset: str, max_edge: int = OPENAI_ECONOMY_MAX_EDGE) -> str:
+    return f"{model}:{quality}:{normalize_ai_preset(preset)}:edge{int(max_edge)}"
+
+
+def estimate_openai_cost(
+    input_path: str | os.PathLike[str],
+    *,
+    quality: str = "low",
+    cached: bool = False,
+) -> float:
+    """Return a conservative user-facing estimate for one OpenAI image edit."""
+    if cached:
+        return 0.0
+    q = (quality or "low").lower()
+    base = OPENAI_QUALITY_COST_ESTIMATE.get(q, OPENAI_QUALITY_COST_ESTIMATE["low"])
+    input_cost = 0.004
+    try:
+        with Image.open(input_path) as im:
+            megapixels = (im.width * im.height) / 1_000_000
+        input_cost = min(0.035, max(0.003, megapixels * 0.004))
+    except Exception:
+        pass
+    return round(base + input_cost, 4)
+
+
+def estimate_openai_batch_cost(
+    paths: list[str | os.PathLike[str]],
+    settings: EnhanceSettings,
+    *,
+    model: str,
+    quality: str,
+    preset: str,
+) -> dict[str, Any]:
+    cache_model = openai_cache_model(model, quality, preset)
+    total = 0.0
+    uncached = 0
+    cached = 0
+    for path in paths:
+        out = cache_path(path, settings, "openai", cache_model)
+        is_cached = out.exists()
+        if is_cached:
+            cached += 1
+        else:
+            uncached += 1
+        total += estimate_openai_cost(path, quality=quality, cached=is_cached)
+    return {"estimated_cost": round(total, 4), "uncached": uncached, "cached": cached, "total": len(paths)}
+
+
 def _target_edge(im: Image.Image, upscale: str) -> int | None:
     mode = (upscale or "auto").lower()
     if mode in ("yo'q", "yoq", "none", "original"):
@@ -102,6 +160,22 @@ def _resize_for_target(im: Image.Image, target_edge: int | None) -> Image.Image:
     scale = min(target_edge / longest, 2.5)
     size = (max(1, int(im.width * scale)), max(1, int(im.height * scale)))
     return im.resize(size, Image.Resampling.LANCZOS)
+
+
+def _prepare_openai_input(input_path: str | os.PathLike[str], folder: str, max_edge: int) -> Path:
+    src = Path(input_path)
+    try:
+        im = ImageOps.exif_transpose(Image.open(src)).convert("RGB")
+    except Exception:
+        return src
+    longest = max(im.size)
+    if longest <= max_edge:
+        return src
+    scale = max_edge / longest
+    resized = im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))), Image.Resampling.LANCZOS)
+    out = Path(folder) / f"{src.stem[:40] or 'photo'}_openai.jpg"
+    resized.save(out, quality=90, optimize=True)
+    return out
 
 
 def _apply_warmth(im: Image.Image, amount: float) -> Image.Image:
@@ -223,9 +297,10 @@ def openai_enhance(
     api_key: str,
     *,
     model: str = "gpt-image-2.5-sunburst",
-    quality: str = "medium",
+    quality: str = "low",
     preset: str = "auto",
     settings: EnhanceSettings | None = None,
+    input_max_edge: int = OPENAI_ECONOMY_MAX_EDGE,
 ) -> Path:
     """Use OpenAI image editing to enhance a photo while preserving people."""
     if not api_key.strip():
@@ -239,19 +314,21 @@ def openai_enhance(
         "size": "auto",
         "output_format": "jpeg",
     }
-    body, boundary = _multipart_body(fields, [("image", Path(input_path))])
-    request = urllib.request.Request(
-        "https://api.openai.com/v1/images/edits",
-        data=body,
-        headers={
-            "Authorization": f"Bearer {api_key.strip()}",
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-        },
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(request, timeout=180, context=ssl.create_default_context()) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
+        with tempfile.TemporaryDirectory(prefix="pvs_openai_") as folder:
+            send_path = _prepare_openai_input(input_path, folder, int(input_max_edge))
+            body, boundary = _multipart_body(fields, [("image", send_path)])
+            request = urllib.request.Request(
+                "https://api.openai.com/v1/images/edits",
+                data=body,
+                headers={
+                    "Authorization": f"Bearer {api_key.strip()}",
+                    "Content-Type": f"multipart/form-data; boundary={boundary}",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=180, context=ssl.create_default_context()) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"OpenAI xatosi: {exc.code}. {detail[:500]}") from exc

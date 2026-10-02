@@ -27,6 +27,15 @@ TRANSITIONS = ["auto","fade","fadeblack","fadewhite","slide","push","wipe","circ
 TRANS_UZ = {"auto":"Avto","fade":"Fade","fadeblack":"Qoraga","fadewhite":"Oqqa","slide":"Slide","push":"Push",
             "wipe":"Wipe","circle":"Doira","radial":"Radial","pixelize":"Piksel","blur":"Blur","dissolve":"Erish","diagonal":"Diagonal"}
 KB_LEVELS = {"subtle": 0.08, "normal": 0.15, "strong": 0.24}
+MOTION_SETTING_LIMITS = {
+    "start_scale": (0.05, 3.0),
+    "end_scale": (0.05, 3.0),
+    "speed": (0.25, 3.0),
+    "start_x": (-1.0, 1.0),
+    "end_x": (-1.0, 1.0),
+    "start_y": (-1.0, 1.0),
+    "end_y": (-1.0, 1.0),
+}
 MOTION_PRESETS = [
     "auto",
     "still",
@@ -57,6 +66,37 @@ MOTION_UZ = {
 def normalize_motion_preset(preset):
     preset = (preset or "auto").lower()
     return preset if preset in MOTION_PRESETS else "auto"
+
+def _bounded_float(value, default, lo, hi):
+    try:
+        value = float(value)
+    except Exception:
+        value = default
+    return max(lo, min(hi, value))
+
+def normalize_motion_settings(settings):
+    if not isinstance(settings, dict):
+        return None
+    out = {}
+    for key, (lo, hi) in MOTION_SETTING_LIMITS.items():
+        if key in settings and settings.get(key) is not None:
+            default = 1.0 if key == "speed" else 0.0
+            out[key] = _bounded_float(settings.get(key), default, lo, hi)
+    return out or None
+
+def _offset_to_pixels(value, axis):
+    try:
+        v = float(value)
+    except Exception:
+        return 0.0
+    if abs(v) <= 1.0:
+        return v * axis
+    return v
+
+def _motion_progress_expr(progress, speed):
+    speed = _bounded_float(speed, 1.0, 0.25, 3.0)
+    exponent = 1.0 / speed
+    return f"pow({progress},{exponent:.5f})"
 
 def resolve_photo_durations(count, default_duration, overrides=None):
     result = []
@@ -215,24 +255,35 @@ def _paste_with_round(base,photo,x,y,radius):
     d=ImageDraw.Draw(mask); d.rounded_rectangle([0,0,photo.width-1,photo.height-1],radius=radius,fill=255)
     base.paste(photo,(x,y),mask)
 
-def _motion_spec(preset,i=0,amt=0.15,W=1920,H=1080):
+def _motion_spec(preset,i=0,amt=0.15,W=1920,H=1080,settings=None):
     preset=normalize_motion_preset(preset)
     if preset=="auto":
         zdir,dx,dy=_kb(i)
         if zdir=="out": ss,es=1.08+amt,1.02
         else: ss,es=1.02,1.08+amt
-        return dict(preset=preset,start_scale=ss,end_scale=es,start_dx=-dx*W*0.04,end_dx=dx*W*0.04,start_dy=-dy*H*0.035,end_dy=dy*H*0.035)
-    if preset=="still": return dict(preset=preset,start_scale=1.0,end_scale=1.0,start_dx=0,end_dx=0,start_dy=0,end_dy=0)
-    if preset=="zoom_in": return dict(preset=preset,start_scale=0.92,end_scale=1.15,start_dx=0,end_dx=0,start_dy=0,end_dy=0)
-    if preset=="zoom_out": return dict(preset=preset,start_scale=1.15,end_scale=0.96,start_dx=0,end_dx=0,start_dy=0,end_dy=0)
-    if preset=="tiny_to_big": return dict(preset=preset,start_scale=0.20,end_scale=1.15,start_dx=0,end_dx=0,start_dy=0,end_dy=0)
-    if preset=="dramatic_zoom": return dict(preset=preset,start_scale=0.35,end_scale=1.50,start_dx=0,end_dx=0,start_dy=0,end_dy=0)
-    if preset=="left_to_center": return dict(preset=preset,start_scale=0.90,end_scale=1.18,start_dx=-W*0.12,end_dx=0,start_dy=0,end_dy=0)
-    if preset=="right_to_center": return dict(preset=preset,start_scale=0.90,end_scale=1.18,start_dx=W*0.12,end_dx=0,start_dy=0,end_dy=0)
-    if preset=="slow_pan_left": return dict(preset=preset,start_scale=1.12,end_scale=1.12,start_dx=W*0.06,end_dx=-W*0.06,start_dy=0,end_dy=0)
-    if preset=="slow_pan_right": return dict(preset=preset,start_scale=1.12,end_scale=1.12,start_dx=-W*0.06,end_dx=W*0.06,start_dy=0,end_dy=0)
-    if preset=="bottom_to_center": return dict(preset=preset,start_scale=0.90,end_scale=1.15,start_dx=0,end_dx=0,start_dy=H*0.10,end_dy=0)
-    return _motion_spec("auto",i,amt,W,H)
+        spec=dict(preset=preset,start_scale=ss,end_scale=es,start_dx=-dx*W*0.04,end_dx=dx*W*0.04,start_dy=-dy*H*0.035,end_dy=dy*H*0.035,speed=1.0)
+    elif preset=="still": spec=dict(preset=preset,start_scale=1.0,end_scale=1.0,start_dx=0,end_dx=0,start_dy=0,end_dy=0,speed=1.0)
+    elif preset=="zoom_in": spec=dict(preset=preset,start_scale=0.92,end_scale=1.15,start_dx=0,end_dx=0,start_dy=0,end_dy=0,speed=0.9)
+    elif preset=="zoom_out": spec=dict(preset=preset,start_scale=1.15,end_scale=0.96,start_dx=0,end_dx=0,start_dy=0,end_dy=0,speed=0.9)
+    elif preset=="tiny_to_big": spec=dict(preset=preset,start_scale=0.45,end_scale=1.10,start_dx=0,end_dx=0,start_dy=0,end_dy=0,speed=0.65)
+    elif preset=="dramatic_zoom": spec=dict(preset=preset,start_scale=0.35,end_scale=1.50,start_dx=0,end_dx=0,start_dy=0,end_dy=0,speed=0.85)
+    elif preset=="left_to_center": spec=dict(preset=preset,start_scale=0.90,end_scale=1.18,start_dx=-W*0.12,end_dx=0,start_dy=0,end_dy=0,speed=0.9)
+    elif preset=="right_to_center": spec=dict(preset=preset,start_scale=0.90,end_scale=1.18,start_dx=W*0.12,end_dx=0,start_dy=0,end_dy=0,speed=0.9)
+    elif preset=="slow_pan_left": spec=dict(preset=preset,start_scale=1.12,end_scale=1.12,start_dx=W*0.06,end_dx=-W*0.06,start_dy=0,end_dy=0,speed=0.75)
+    elif preset=="slow_pan_right": spec=dict(preset=preset,start_scale=1.12,end_scale=1.12,start_dx=-W*0.06,end_dx=W*0.06,start_dy=0,end_dy=0,speed=0.75)
+    elif preset=="bottom_to_center": spec=dict(preset=preset,start_scale=0.90,end_scale=1.15,start_dx=0,end_dx=0,start_dy=H*0.10,end_dy=0,speed=0.85)
+    else:
+        return _motion_spec("auto",i,amt,W,H,settings)
+    custom=normalize_motion_settings(settings)
+    if custom:
+        if "start_scale" in custom: spec["start_scale"]=custom["start_scale"]
+        if "end_scale" in custom: spec["end_scale"]=custom["end_scale"]
+        if "speed" in custom: spec["speed"]=custom["speed"]
+        if "start_x" in custom: spec["start_dx"]=_offset_to_pixels(custom["start_x"],W)
+        if "end_x" in custom: spec["end_dx"]=_offset_to_pixels(custom["end_x"],W)
+        if "start_y" in custom: spec["start_dy"]=_offset_to_pixels(custom["start_y"],H)
+        if "end_y" in custom: spec["end_dy"]=_offset_to_pixels(custom["end_y"],H)
+    return spec
 
 def _photo_panel(photo,box,frame=None):
     frame=frame or {}
@@ -413,17 +464,18 @@ def _kb(i):
     seq=[("in",1,-0.2),("out",-1,0.2),("in",0,-1),("out",1,0.2),("in",-1,0),("out",0,-0.3),
          ("in",1,0.3),("out",-1,0),("in",0,-1),("out",1,0.3),("in",-1,0)]
     return seq[i%len(seq)]
-def _vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain,motion=None,i=0):
+def _vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain,motion=None,i=0,motion_settings=None):
     N=int(dur*fps)
     ax=0.95*dx; ay=0.7*dy; half=N/2; sc=max(3840,int(W*1.5))
-    if motion and motion!="auto":
-        spec=_motion_spec(motion,i,amt,W,H)
+    if (motion and motion!="auto") or motion_settings:
+        spec=_motion_spec(motion or "auto",i,amt,W,H,motion_settings)
         ss=max(1.0,float(spec["start_scale"])); es=max(1.0,float(spec["end_scale"]))
-        z=f"'{ss:.4f}+({es-ss:.6f})*on/{max(1,N-1)}'"
+        prog=_motion_progress_expr(f"on/{max(1,N-1)}", spec.get("speed",1.0))
+        z=f"'{ss:.4f}+({es-ss:.6f})*{prog}'"
         sdx=float(spec["start_dx"])*sc/max(1,W); edx=float(spec["end_dx"])*sc/max(1,W)
         sdy=float(spec["start_dy"])*sc/max(1,H); edy=float(spec["end_dy"])*sc/max(1,H)
-        x=f"'iw/2-(iw/zoom/2)+({sdx:.3f}+({edx-sdx:.3f})*on/{max(1,N-1)})'"
-        y=f"'ih/2-(ih/zoom/2)+({sdy:.3f}+({edy-sdy:.3f})*on/{max(1,N-1)})'"
+        x=f"'iw/2-(iw/zoom/2)+({sdx:.3f}+({edx-sdx:.3f})*{prog})'"
+        y=f"'ih/2-(ih/zoom/2)+({sdy:.3f}+({edy-sdy:.3f})*{prog})'"
     else:
         z=f"'min(1.02+{amt/N:.6f}*on,{1.02+amt:.3f})'" if zdir=="in" else f"'max({1.02+amt:.3f}-{amt/N:.6f}*on,1.02)'"
         x=f"'iw/2-(iw/zoom/2)+{ax:.3f}*(on-{half:.1f})'"; y=f"'ih/2-(ih/zoom/2)+{ay:.3f}*(on-{half:.1f})'"
@@ -431,8 +483,8 @@ def _vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain,motion=None,i=0):
     if vig: base+=",vignette=PI/5.0"
     if grain: base+=",noise=alls=6:allf=t"
     return base,N
-def render_scene(gp,cap_png,dur,i,W,H,fps,vig,amt,grain,bloom,out,cancel_event=None,motion=None):
-    zdir,dx,dy=_kb(i); base,N=_vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain,motion,i)
+def render_scene(gp,cap_png,dur,i,W,H,fps,vig,amt,grain,bloom,out,cancel_event=None,motion=None,motion_settings=None):
+    zdir,dx,dy=_kb(i); base,N=_vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain,motion,i,motion_settings)
     parts=[f"[0:v]{base}[v0]"]; last="v0"
     if bloom:
         s=max(6,int(H*0.014))
@@ -465,13 +517,13 @@ def render_static_scene(gp,cap_png,dur,i,W,H,fps,grain,bloom,out,cancel_event=No
     _run(["ffmpeg","-y",*inp,"-filter_complex",";".join(parts),"-map",f"[{last}]","-frames:v",str(N),"-r",str(fps),
           "-c:v","libx264","-crf","12","-preset","veryfast","-pix_fmt","yuv420p",out], cancel_event)
 
-def render_background_motion_scene(gp,bg_path,cap_png,dur,i,W,H,fps,grain,bloom,out,layout,scale,frame,motion=None,cancel_event=None):
+def render_background_motion_scene(gp,bg_path,cap_png,dur,i,W,H,fps,grain,bloom,out,layout,scale,frame,motion=None,cancel_event=None,motion_settings=None):
     bg=_cover(Image.open(bg_path),W,H).convert("RGB")
     bg_tmp=out+".bg.jpg"; panel_tmp=out+".panel.png"
     bg.save(bg_tmp,quality=94)
     panel=_photo_panel(Image.open(gp),_photo_box(W,H,layout,scale),frame)
     panel.save(panel_tmp)
-    N=int(dur*fps); spec=_motion_spec(motion or "auto",i,0.15,W,H)
+    N=int(dur*fps); spec=_motion_spec(motion or "auto",i,0.15,W,H,motion_settings)
     ss,es=float(spec["start_scale"]),float(spec["end_scale"])
     sdx,edx=float(spec["start_dx"]),float(spec["end_dx"])
     sdy,edy=float(spec["start_dy"]),float(spec["end_dy"])
@@ -485,9 +537,10 @@ def render_background_motion_scene(gp,bg_path,cap_png,dur,i,W,H,fps,grain,bloom,
         s=max(6,int(H*0.014))
         parts.append(f"[bg0]split[b0][b1];[b1]gblur=sigma={s}[b2];[b0][b2]blend=all_mode=screen:all_opacity=0.18[bg1]")
         last="bg1"
-    scale_expr=f"{ss:.5f}+({es-ss:.5f})*{t}"
-    x_expr=f"{cx:.3f}-overlay_w/2+({sdx:.3f}+({edx-sdx:.3f})*{t})"
-    y_expr=f"{cy:.3f}-overlay_h/2+({sdy:.3f}+({edy-sdy:.3f})*{t})"
+    progress=_motion_progress_expr(t, spec.get("speed",1.0))
+    scale_expr=f"{ss:.5f}+({es-ss:.5f})*{progress}"
+    x_expr=f"{cx:.3f}-overlay_w/2+({sdx:.3f}+({edx-sdx:.3f})*{progress})"
+    y_expr=f"{cy:.3f}-overlay_h/2+({sdy:.3f}+({edy-sdy:.3f})*{progress})"
     parts.append(f"[1:v]format=rgba,scale=w='iw*({scale_expr})':h='ih*({scale_expr})':eval=frame[p]")
     parts.append(f"[{last}][p]overlay=x='{x_expr}':y='{y_expr}':eval=frame[o0]")
     last="o0"
@@ -557,6 +610,7 @@ def build_video(config, progress=lambda p,m: None, cancel_event=None):
     enhanced=config.get("enhanced_photos") or {}
     pdurs=resolve_photo_durations(len(photos), PDUR, config.get("photo_durations"))
     pmotions=list(config.get("photo_motions") or [])
+    pmotion_settings=list(config.get("photo_motion_settings") or [])
     bg_path=config.get("background_path") or ""
     has_bg=bool(bg_path and os.path.isfile(bg_path))
     playout=config.get("photo_layout","center")
@@ -572,6 +626,11 @@ def build_video(config, progress=lambda p,m: None, cancel_event=None):
             return normalize_motion_preset(pmotions[idx])
         except Exception:
             return "auto"
+    def _motion_settings(idx):
+        try:
+            return normalize_motion_settings(pmotion_settings[idx])
+        except Exception:
+            return None
     work=tempfile.mkdtemp(prefix="pvs_")
     progress(3,"Rasmlar tayyorlanmoqda...")
     graded=[]
@@ -605,9 +664,9 @@ def build_video(config, progress=lambda p,m: None, cancel_event=None):
         dur_i=_pdur(i)
         sc=os.path.join(work,f"s{i}.mkv")
         if has_bg:
-            render_background_motion_scene(gp,bg_path,cap_png.get(i+1),dur_i,i,W,H,fps,grain,bloom,sc,playout,pscale,pframe,_motion(i),cancel_event)
+            render_background_motion_scene(gp,bg_path,cap_png.get(i+1),dur_i,i,W,H,fps,grain,bloom,sc,playout,pscale,pframe,_motion(i),cancel_event,_motion_settings(i))
         else:
-            render_scene(gp,cap_png.get(i+1),dur_i,i,W,H,fps,vig,amt,grain,bloom,sc,cancel_event,_motion(i))
+            render_scene(gp,cap_png.get(i+1),dur_i,i,W,H,fps,vig,amt,grain,bloom,sc,cancel_event,_motion(i),_motion_settings(i))
         sclips.append(sc)
         progress(30+int(48*(i+1)/len(graded)),f"Sahna: {i+1}/{len(graded)}")
     photo_durs=[_pdur(i) for i in range(len(sclips))]

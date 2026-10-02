@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import ctypes
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,7 @@ SUPPORTED_BG = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 DEFAULT_SETTINGS: dict[str, Any] = {
     "provider": "openai",
     "openai_model": "gpt-image-2.5-sunburst",
-    "openai_quality": "medium",
+    "openai_quality": "low",
     "ai_consent": False,
     "last_background": "",
     "last_template": "",
@@ -47,6 +48,10 @@ def templates_dir() -> Path:
 
 def ai_cache_dir() -> Path:
     return app_dir() / "cache" / "ai"
+
+
+def ai_history_path() -> Path:
+    return app_dir() / "ai_history.jsonl"
 
 
 def ensure_dirs() -> None:
@@ -80,6 +85,59 @@ def save_settings(settings: dict[str, Any]) -> None:
     settings_path().write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+
+def append_ai_history(entry: dict[str, Any]) -> None:
+    """Append a sanitized AI usage row to AppData JSONL."""
+    ensure_dirs()
+    safe = {
+        "timestamp": entry.get("timestamp")
+        or datetime.now().astimezone().isoformat(timespec="seconds"),
+        "provider": str(entry.get("provider", "")),
+        "model": str(entry.get("model", "")),
+        "quality": str(entry.get("quality", "")),
+        "preset": str(entry.get("preset", "")),
+        "source_name": str(entry.get("source_name", "")),
+        "source_path": str(entry.get("source_path", "")),
+        "output_path": str(entry.get("output_path", "")),
+        "cache_hit": bool(entry.get("cache_hit", False)),
+        "status": str(entry.get("status", "")),
+        "error": str(entry.get("error", ""))[:500],
+        "estimated_cost": round(float(entry.get("estimated_cost", 0.0) or 0.0), 6),
+    }
+    with ai_history_path().open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(safe, ensure_ascii=False) + "\n")
+
+
+def list_ai_history(limit: int | None = None) -> list[dict[str, Any]]:
+    ensure_dirs()
+    path = ai_history_path()
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+    except Exception:
+        return []
+    rows.reverse()
+    if limit is not None:
+        return rows[: max(0, int(limit))]
+    return rows
+
+
+def clear_ai_history() -> None:
+    ensure_dirs()
+    path = ai_history_path()
+    if path.exists():
+        path.unlink()
 
 
 def slugify(name: str) -> str:

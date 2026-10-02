@@ -6,11 +6,13 @@ from __future__ import annotations
 import os
 import platform
 import queue
+import csv
 import subprocess
 import sys
 import tempfile
 import threading
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog
 
@@ -152,6 +154,7 @@ class App:
         self.vc_cancel_event = threading.Event()
         self.row_frames: list = []
         self.row_txt: list = []
+        self.global_motion_widgets: list = []
         self._imgs: list = []
         self._prev_img = None
         self._ai_img = None
@@ -193,6 +196,17 @@ class App:
         self.slide_global_var = tk.BooleanVar(value=True)
         self.slide_duration_var = tk.DoubleVar(value=4.5)
         self.slide_motion_var = tk.StringVar(value="")
+        self.slide_motion_global_var = tk.BooleanVar(value=True)
+        self.slide_motion_start_scale = tk.DoubleVar(value=0.45)
+        self.slide_motion_end_scale = tk.DoubleVar(value=1.10)
+        self.slide_motion_speed = tk.DoubleVar(value=0.65)
+        self.slide_motion_x = tk.DoubleVar(value=0.0)
+        self.slide_motion_y = tk.DoubleVar(value=0.0)
+        self.motion_start_scale = tk.DoubleVar(value=0.45)
+        self.motion_end_scale = tk.DoubleVar(value=1.10)
+        self.motion_speed = tk.DoubleVar(value=0.65)
+        self.motion_x = tk.DoubleVar(value=0.0)
+        self.motion_y = tk.DoubleVar(value=0.0)
         self.music_mode = tk.StringVar(value="auto")
         self.music_path = tk.StringVar(value="")
         self.out_var = tk.StringVar(value=os.path.join(os.path.expanduser("~"), "video.mp4"))
@@ -216,7 +230,7 @@ class App:
 
         self.provider_var = tk.StringVar(value=self.settings.get("provider", "openai"))
         self.model_var = tk.StringVar(value=self.settings.get("openai_model", "gpt-image-2.5-sunburst"))
-        self.openai_quality_var = tk.StringVar(value=self.settings.get("openai_quality", "medium"))
+        self.openai_quality_var = tk.StringVar(value=self.settings.get("openai_quality", "low"))
         self.consent_var = tk.BooleanVar(value=bool(self.settings.get("ai_consent", False)))
         self.key_var = tk.StringVar(value="")
 
@@ -340,10 +354,29 @@ class App:
         ctk.CTkLabel(per, text=self.t("Ushbu rasm harakati"), font=self.F, anchor="w").pack(fill="x", pady=(8, 0))
         self.slide_motion_menu = ctk.CTkOptionMenu(per, values=[self.t(SE.MOTION_UZ[k]) for k in SE.MOTION_PRESETS], variable=self.slide_motion_var, height=36, command=self._slide_motion_changed)
         self.slide_motion_menu.pack(fill="x")
+        self.slide_motion_global_switch = ctk.CTkSwitch(per, text=self.t("Global harakat sozlamasi"), variable=self.slide_motion_global_var, font=self.F, command=self._toggle_slide_motion_settings)
+        self.slide_motion_global_switch.pack(anchor="w", pady=(8, 0))
+        self.slide_motion_widgets = []
+        self._motion_slider(per, "Boshlanish kattaligi", self.slide_motion_start_scale, 0.20, 1.60, self._slide_motion_settings_changed, target="slide")
+        self._motion_slider(per, "Yakun kattaligi", self.slide_motion_end_scale, 0.40, 1.80, self._slide_motion_settings_changed, target="slide")
+        self._motion_slider(per, "Harakat tezligi", self.slide_motion_speed, 0.35, 2.00, self._slide_motion_settings_changed, target="slide")
+        self._motion_slider(per, "X siljish", self.slide_motion_x, -0.35, 0.35, self._slide_motion_settings_changed, target="slide")
+        self._motion_slider(per, "Y siljish", self.slide_motion_y, -0.25, 0.25, self._slide_motion_settings_changed, target="slide")
 
         right = ctk.CTkScrollableFrame(self.body, width=430, label_text=self.t("2) Sozlamalar"))
         right.pack(side="right", fill="y")
         self._settings_controls(right)
+
+    def _motion_slider(self, parent, label, var, lo, hi, callback, target="global") -> None:
+        wrap = ctk.CTkFrame(parent, fg_color="transparent")
+        wrap.pack(fill="x", padx=8, pady=(8, 0))
+        ctk.CTkLabel(wrap, text=self.t(label), anchor="w", font=self.F).pack(fill="x")
+        slider = ctk.CTkSlider(wrap, from_=lo, to=hi, variable=var, command=lambda _v: callback())
+        slider.pack(fill="x")
+        if target == "slide":
+            self.slide_motion_widgets.append(slider)
+        else:
+            self.global_motion_widgets.append(slider)
 
     def _settings_controls(self, parent) -> None:
         def h2(txt):
@@ -388,7 +421,13 @@ class App:
         self._opttr(parent, "Rang", SE.GRADES, SE.GRADE_UZ, "grade", extra=self._schedule_preview_update, gallery=self.gallery_grade)
         self._opttr(parent, "O'tish effekti", SE.TRANSITIONS, SE.TRANS_UZ, "trans", gallery=self.gallery_trans)
         self._opttr(parent, "Harakat (zoom) kuchi", ["subtle", "normal", "strong"], KB_LAT, "kb", extra=self._schedule_preview_update)
-        self._opttr(parent, "Umumiy rasm harakati", SE.MOTION_PRESETS, SE.MOTION_UZ, "motion", extra=self._schedule_preview_update)
+        self._opttr(parent, "Umumiy rasm harakati", SE.MOTION_PRESETS, SE.MOTION_UZ, "motion", extra=self._global_motion_preset_changed)
+        self.global_motion_widgets = []
+        self._motion_slider(parent, "Boshlanish kattaligi", self.motion_start_scale, 0.20, 1.60, self._global_motion_settings_changed)
+        self._motion_slider(parent, "Yakun kattaligi", self.motion_end_scale, 0.40, 1.80, self._global_motion_settings_changed)
+        self._motion_slider(parent, "Harakat tezligi", self.motion_speed, 0.35, 2.00, self._global_motion_settings_changed)
+        self._motion_slider(parent, "X siljish", self.motion_x, -0.35, 0.35, self._global_motion_settings_changed)
+        self._motion_slider(parent, "Y siljish", self.motion_y, -0.25, 0.25, self._global_motion_settings_changed)
         self._opttr(parent, "Vignette", ["auto", "on", "off"], VIG_LAT, "vig", extra=self._schedule_preview_update)
         ctk.CTkSwitch(parent, text=self.t("Film grain (don)"), variable=self.grain_var, font=self.F, command=self._schedule_preview_update).pack(anchor="w", padx=10, pady=(10, 0))
         ctk.CTkSwitch(parent, text=self.t("Bloom (porlash)"), variable=self.bloom_var, font=self.F, command=self._schedule_preview_update).pack(anchor="w", padx=10, pady=(8, 0))
@@ -476,6 +515,114 @@ class App:
         self.show_outro_var.set(key != "minimal")
         self._schedule_preview_update()
 
+    def _preset_motion_defaults(self, preset: str) -> dict:
+        W, H = 1000, 1000
+        spec = SE._motion_spec(preset, 0, SE.KB_LEVELS.get(self.sel.get("kb", "normal"), 0.15), W, H)
+        return {
+            "start_scale": float(spec.get("start_scale", 1.0)),
+            "end_scale": float(spec.get("end_scale", 1.0)),
+            "speed": float(spec.get("speed", 1.0)),
+            "x": float(spec.get("start_dx", 0.0)) / W,
+            "y": float(spec.get("start_dy", 0.0)) / H,
+        }
+
+    def _apply_motion_defaults_to_vars(self, preset: str, scope: str = "global") -> None:
+        vals = self._preset_motion_defaults(preset)
+        if scope == "slide":
+            self.slide_motion_start_scale.set(vals["start_scale"])
+            self.slide_motion_end_scale.set(vals["end_scale"])
+            self.slide_motion_speed.set(vals["speed"])
+            self.slide_motion_x.set(vals["x"])
+            self.slide_motion_y.set(vals["y"])
+        else:
+            self.motion_start_scale.set(vals["start_scale"])
+            self.motion_end_scale.set(vals["end_scale"])
+            self.motion_speed.set(vals["speed"])
+            self.motion_x.set(vals["x"])
+            self.motion_y.set(vals["y"])
+
+    def _motion_settings_from_values(self, preset: str, start_scale, end_scale, speed, x, y) -> dict:
+        preset = SE.normalize_motion_preset(preset)
+        x = float(x)
+        y = float(y)
+        if preset in ("left_to_center", "right_to_center", "bottom_to_center"):
+            start_x, end_x = x, 0.0
+            start_y, end_y = y, 0.0
+        elif preset in ("slow_pan_left", "slow_pan_right"):
+            start_x, end_x = x, -x
+            start_y, end_y = y, -y
+        else:
+            start_x, end_x = -x / 2.0, x / 2.0
+            start_y, end_y = -y / 2.0, y / 2.0
+        return {
+            "start_scale": float(start_scale),
+            "end_scale": float(end_scale),
+            "speed": float(speed),
+            "start_x": start_x,
+            "end_x": end_x,
+            "start_y": start_y,
+            "end_y": end_y,
+            "ui_x": x,
+            "ui_y": y,
+        }
+
+    def _global_motion_settings(self) -> dict:
+        return self._motion_settings_from_values(
+            self.sel.get("motion", "auto"),
+            self.motion_start_scale.get(),
+            self.motion_end_scale.get(),
+            self.motion_speed.get(),
+            self.motion_x.get(),
+            self.motion_y.get(),
+        )
+
+    def _slide_motion_settings(self) -> dict:
+        return self._motion_settings_from_values(
+            self._motion_key_from_label(self.slide_motion_var.get()),
+            self.slide_motion_start_scale.get(),
+            self.slide_motion_end_scale.get(),
+            self.slide_motion_speed.get(),
+            self.slide_motion_x.get(),
+            self.slide_motion_y.get(),
+        )
+
+    def _global_motion_preset_changed(self) -> None:
+        self._apply_motion_defaults_to_vars(self.sel.get("motion", "auto"), "global")
+        if self.cur is not None and self.slide_motion_global_var.get():
+            self._set_slide_controls_from_item(self.cur)
+        self._schedule_preview_update()
+
+    def _global_motion_settings_changed(self) -> None:
+        if self.cur is not None and self.slide_motion_global_var.get():
+            self._set_slide_controls_from_item(self.cur)
+        self._schedule_preview_update()
+
+    def _set_slide_motion_widget_state(self, state: str) -> None:
+        for widget in getattr(self, "slide_motion_widgets", []):
+            try:
+                widget.configure(state=state)
+            except Exception:
+                pass
+
+    def _toggle_slide_motion_settings(self) -> None:
+        if self.cur is None:
+            return
+        if self.slide_motion_global_var.get():
+            self.items[self.cur]["motion_settings"] = None
+            self._set_slide_motion_widget_state("disabled")
+            self._set_slide_controls_from_item(self.cur)
+        else:
+            self._set_slide_motion_widget_state("normal")
+            self.items[self.cur]["motion_settings"] = self._slide_motion_settings()
+        self._schedule_preview_update()
+
+    def _slide_motion_settings_changed(self) -> None:
+        if self.cur is None:
+            return
+        if not self.slide_motion_global_var.get():
+            self.items[self.cur]["motion_settings"] = self._slide_motion_settings()
+            self._schedule_preview_update()
+
     def _schedule_preview_update(self, delay: int = 140) -> None:
         if self.preview_after is not None:
             try:
@@ -520,7 +667,11 @@ class App:
     def _slide_motion_changed(self, label) -> None:
         if self.cur is None:
             return
-        self.items[self.cur]["motion_preset"] = self._motion_key_from_label(label)
+        key = self._motion_key_from_label(label)
+        self.items[self.cur]["motion_preset"] = key
+        if not self.slide_motion_global_var.get():
+            self._apply_motion_defaults_to_vars(key, "slide")
+            self.items[self.cur]["motion_settings"] = self._slide_motion_settings()
         self._refresh_row_text(self.cur)
         self._schedule_preview_update()
 
@@ -539,6 +690,25 @@ class App:
         if motion not in SE.MOTION_PRESETS:
             motion = "auto"
         self.slide_motion_var.set(self._motion_label(motion))
+        settings = item.get("motion_settings")
+        self.slide_motion_global_var.set(settings is None)
+        if settings is None:
+            if motion == "auto":
+                self.slide_motion_start_scale.set(float(self.motion_start_scale.get()))
+                self.slide_motion_end_scale.set(float(self.motion_end_scale.get()))
+                self.slide_motion_speed.set(float(self.motion_speed.get()))
+                self.slide_motion_x.set(float(self.motion_x.get()))
+                self.slide_motion_y.set(float(self.motion_y.get()))
+            else:
+                self._apply_motion_defaults_to_vars(motion, "slide")
+            self._set_slide_motion_widget_state("disabled")
+        else:
+            self.slide_motion_start_scale.set(float(settings.get("start_scale", self.motion_start_scale.get())))
+            self.slide_motion_end_scale.set(float(settings.get("end_scale", self.motion_end_scale.get())))
+            self.slide_motion_speed.set(float(settings.get("speed", self.motion_speed.get())))
+            self.slide_motion_x.set(float(settings.get("ui_x", settings.get("start_x", 0.0))))
+            self.slide_motion_y.set(float(settings.get("ui_y", settings.get("start_y", 0.0))))
+            self._set_slide_motion_widget_state("normal")
 
     def _save_current_item_controls(self) -> None:
         self._save_caption()
@@ -547,6 +717,7 @@ class App:
         item = self.items[self.cur]
         item["duration_override"] = None if self.slide_global_var.get() else float(self.slide_duration_var.get())
         item["motion_preset"] = self._motion_key_from_label(self.slide_motion_var.get())
+        item["motion_settings"] = None if self.slide_motion_global_var.get() else self._slide_motion_settings()
         self._refresh_row_text(self.cur)
 
     def _refresh_row_text(self, idx: int) -> None:
@@ -599,6 +770,8 @@ class App:
         ctk.CTkLabel(right, text=self.t("Upscale"), font=self.F, anchor="w").pack(fill="x", padx=8, pady=(10, 0))
         ctk.CTkOptionMenu(right, values=["auto", "none", "HD", "2K", "4K"], variable=self.ai_upscale, height=38, command=lambda _v: self._update_ai_preview_only()).pack(fill="x", padx=8)
         ctk.CTkSwitch(right, text=self.t("Face-safe restore"), variable=self.ai_face, font=self.F, command=self._update_ai_preview_only).pack(anchor="w", padx=10, pady=(10, 4))
+        ctk.CTkButton(right, text=self.t("Bepul local tuzatish"), height=42, font=self.FB, fg_color="#5a5a5a", command=self.apply_local_selected).pack(fill="x", padx=8, pady=(14, 4))
+        ctk.CTkButton(right, text=self.t("Hammasini local tuzatish"), height=38, font=self.F, fg_color="#5a5a5a", command=self.apply_local_all).pack(fill="x", padx=8, pady=4)
         ctk.CTkButton(right, text=self.t("OpenAI bilan tanlangan rasmni tuzatish"), height=42, font=self.FB, fg_color="#6b4fa3", command=self.apply_openai_selected).pack(fill="x", padx=8, pady=(14, 4))
         ctk.CTkButton(right, text=self.t("Hammasini OpenAI bilan tuzatish"), height=42, font=self.FB, fg_color="#3a7d44", command=lambda: self.apply_openai_all()).pack(fill="x", padx=8, pady=4)
         ctk.CTkButton(right, text=self.t("Originalga qaytish"), height=38, fg_color="#5a5a5a", command=self.reset_selected_ai).pack(fill="x", padx=8, pady=4)
@@ -654,6 +827,17 @@ class App:
         ctk.CTkOptionMenu(box, values=["low", "medium", "high", "xhigh", "max"], variable=self.openai_quality_var, height=38).pack(fill="x", padx=8)
         ctk.CTkSwitch(box, text=self.t("AI ishlaganda rasm internet orqali yuborilishiga roziman"), variable=self.consent_var, font=self.F, command=self.save_settings).pack(anchor="w", padx=10, pady=(14, 4))
         ctk.CTkButton(box, text=self.t("Sozlamalarni saqlash"), height=40, command=self.save_settings).pack(fill="x", padx=8, pady=(12, 8))
+        ctk.CTkLabel(box, text=self.t("AI xarajatlari"), font=self.FB, anchor="w").pack(fill="x", padx=8, pady=(18, 0))
+        self.ai_cost_summary = ctk.CTkLabel(box, text="", text_color="#8a8a8a", font=self.F, anchor="w")
+        self.ai_cost_summary.pack(fill="x", padx=8, pady=(2, 4))
+        cost_row = ctk.CTkFrame(box, fg_color="transparent")
+        cost_row.pack(fill="x", padx=8)
+        ctk.CTkButton(cost_row, text=self.t("Yangilash"), height=34, command=self.refresh_ai_history).pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(cost_row, text=self.t("CSV eksport"), height=34, fg_color="#5a5a5a", command=self.export_ai_history_csv).pack(side="left", fill="x", expand=True, padx=6)
+        ctk.CTkButton(cost_row, text=self.t("Tozalash"), height=34, fg_color="#8a3c3c", command=self.clear_ai_history_confirm).pack(side="left", fill="x", expand=True)
+        self.ai_history_box = ctk.CTkTextbox(box, height=150, font=self.F)
+        self.ai_history_box.pack(fill="x", padx=8, pady=(8, 4))
+        self.refresh_ai_history()
         ctk.CTkLabel(box, text=self.t("Dastur yangilanishi"), font=self.FB, anchor="w").pack(fill="x", padx=8, pady=(20, 0))
         ctk.CTkLabel(box, text=f"{self.t('Joriy versiya')}: {APP_VERSION}", text_color="#8a8a8a", font=self.F, anchor="w").pack(fill="x", padx=8, pady=(2, 6))
         row_update = ctk.CTkFrame(box, fg_color="transparent")
@@ -805,6 +989,74 @@ class App:
         except Exception as exc:
             messagebox.showerror(self.t("Yangilanish"), str(exc))
 
+    def _ai_history_rows(self):
+        return Store.list_ai_history(limit=200)
+
+    def refresh_ai_history(self):
+        if not hasattr(self, "ai_history_box"):
+            return
+        rows = self._ai_history_rows()
+        today = datetime.now().date().isoformat()
+        month = today[:7]
+        today_total = 0.0
+        month_total = 0.0
+        cache_hits = 0
+        for row in rows:
+            ts = str(row.get("timestamp", ""))
+            cost = float(row.get("estimated_cost", 0.0) or 0.0)
+            if ts.startswith(today):
+                today_total += cost
+            if ts.startswith(month):
+                month_total += cost
+            if row.get("cache_hit"):
+                cache_hits += 1
+        self.ai_cost_summary.configure(
+            text=f"{self.t('Bugun')}: ${today_total:.4f}   {self.t('Bu oy')}: ${month_total:.4f}   Cache: {cache_hits}"
+        )
+        self.ai_history_box.configure(state="normal")
+        self.ai_history_box.delete("1.0", "end")
+        if not rows:
+            self.ai_history_box.insert("end", self.t("AI tarixi hali yo'q."))
+        else:
+            for row in rows[:20]:
+                ts = str(row.get("timestamp", ""))[:19].replace("T", " ")
+                name = row.get("source_name") or Path(str(row.get("source_path", ""))).name
+                status = row.get("status", "")
+                cache = "cache" if row.get("cache_hit") else "api"
+                cost = float(row.get("estimated_cost", 0.0) or 0.0)
+                self.ai_history_box.insert("end", f"{ts} | {name} | {status} | {cache} | ${cost:.4f}\n")
+        self.ai_history_box.configure(state="disabled")
+
+    def export_ai_history_csv(self):
+        rows = list(reversed(Store.list_ai_history()))
+        if not rows:
+            messagebox.showinfo(self.t("AI xarajatlari"), self.t("AI tarixi hali yo'q."))
+            return
+        path = filedialog.asksaveasfilename(
+            title=self.t("CSV eksport"),
+            defaultextension=".csv",
+            initialfile="ai_history.csv",
+            filetypes=[("CSV", "*.csv")],
+        )
+        if not path:
+            return
+        fields = ["timestamp", "provider", "model", "quality", "preset", "source_name", "source_path", "output_path", "cache_hit", "status", "estimated_cost", "error"]
+        try:
+            with open(path, "w", newline="", encoding="utf-8-sig") as fh:
+                writer = csv.DictWriter(fh, fieldnames=fields)
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow({key: row.get(key, "") for key in fields})
+            messagebox.showinfo(self.t("AI xarajatlari"), self.t("CSV saqlandi."))
+        except Exception as exc:
+            messagebox.showerror(self.t("AI xarajatlari"), str(exc))
+
+    def clear_ai_history_confirm(self):
+        if not messagebox.askyesno(self.t("AI xarajatlari"), self.t("AI tarixini tozalaymizmi?")):
+            return
+        Store.clear_ai_history()
+        self.refresh_ai_history()
+
     def pick_ffmpeg(self):
         p = filedialog.askopenfilename(title="ffmpeg.exe", filetypes=[("ffmpeg", "ffmpeg.exe ffmpeg"), ("*", "*.*")])
         if p and SE.set_ffmpeg(p):
@@ -860,6 +1112,7 @@ class App:
                 "enhanced_path": "",
                 "duration_override": None,
                 "motion_preset": "auto",
+                "motion_settings": None,
             })
             added += 1
         self._rebuild()
@@ -969,6 +1222,15 @@ class App:
                 return item_motion
         return self.sel.get("motion", "auto")
 
+    def _preview_motion_settings(self):
+        if self.cur is not None and 0 <= self.cur < len(self.items):
+            item = self.items[self.cur]
+            if item.get("motion_settings"):
+                return item.get("motion_settings")
+            if item.get("motion_preset") in SE.MOTION_PRESETS and item.get("motion_preset") != "auto":
+                return None
+        return self._global_motion_settings()
+
     def _preview_effects(self, im, t):
         out = im.convert("RGB")
         W, H = out.size
@@ -1023,8 +1285,9 @@ class App:
         frame = self._photo_frame()
         motion = self._preview_motion_key()
         amt = SE.KB_LEVELS.get(self.sel["kb"], 0.15)
-        spec = SE._motion_spec(motion, self.cur or 0, amt, W, H)
-        steps = 12 if motion != "still" else 1
+        motion_settings = self._preview_motion_settings()
+        spec = SE._motion_spec(motion, self.cur or 0, amt, W, H, motion_settings)
+        steps = 12 if motion != "still" or motion_settings else 1
         frames = []
         bg = None
         if has_bg:
@@ -1035,9 +1298,11 @@ class App:
             panel = SE._photo_panel(src, (0, 0, int(W * 0.78), int(H * 0.78)), {"border": False, "shadow": False, "radius": 0})
         for n in range(steps):
             t = 0 if steps == 1 else n / (steps - 1)
-            scale = float(spec["start_scale"]) + (float(spec["end_scale"]) - float(spec["start_scale"])) * t
-            dx = float(spec["start_dx"]) + (float(spec["end_dx"]) - float(spec["start_dx"])) * t
-            dy = float(spec["start_dy"]) + (float(spec["end_dy"]) - float(spec["start_dy"])) * t
+            speed = max(0.25, min(3.0, float(spec.get("speed", 1.0))))
+            prog = t ** (1.0 / speed)
+            scale = float(spec["start_scale"]) + (float(spec["end_scale"]) - float(spec["start_scale"])) * prog
+            dx = float(spec["start_dx"]) + (float(spec["end_dx"]) - float(spec["start_dx"])) * prog
+            dy = float(spec["start_dy"]) + (float(spec["end_dy"]) - float(spec["start_dy"])) * prog
             canvas = bg.copy() if bg is not None else Image.new("RGBA", (W, H), (18, 18, 22, 255))
             pw, ph = max(1, int(panel.width * scale)), max(1, int(panel.height * scale))
             moving = panel.resize((pw, ph), Image.LANCZOS)
@@ -1451,6 +1716,7 @@ class App:
             "transition_type": self.sel["trans"],
             "kb_intensity": self.sel["kb"],
             "motion_preset": self.sel["motion"],
+            "motion_settings": self._global_motion_settings(),
             "vignette": self.sel["vig"],
             "text_enabled": bool(self.text_enabled_var.get()),
             "show_title_card": bool(self.show_title_var.get()),
@@ -1572,6 +1838,16 @@ class App:
             self.sel["motion"] = data.get("motion_preset", self.sel["motion"])
             if self.sel["motion"] not in SE.MOTION_PRESETS:
                 self.sel["motion"] = "auto"
+            raw_motion_settings = data.get("motion_settings") if isinstance(data.get("motion_settings"), dict) else {}
+            motion_settings = SE.normalize_motion_settings(raw_motion_settings)
+            if motion_settings:
+                self.motion_start_scale.set(float(motion_settings.get("start_scale", self.motion_start_scale.get())))
+                self.motion_end_scale.set(float(motion_settings.get("end_scale", self.motion_end_scale.get())))
+                self.motion_speed.set(float(motion_settings.get("speed", self.motion_speed.get())))
+                self.motion_x.set(float(raw_motion_settings.get("ui_x", motion_settings.get("start_x", self.motion_x.get()))))
+                self.motion_y.set(float(raw_motion_settings.get("ui_y", motion_settings.get("start_y", self.motion_y.get()))))
+            else:
+                self._apply_motion_defaults_to_vars(self.sel["motion"], "global")
             self.sel["vig"] = data.get("vignette", self.sel["vig"])
             inferred_text = any(str(data.get(k, "")).strip() for k in ("title", "kicker", "outro_kicker", "subtitle"))
             text_enabled = bool(data.get("text_enabled", inferred_text))
@@ -1653,6 +1929,19 @@ class App:
     def apply_ai(self, all_photos: bool):
         self.apply_openai_all() if all_photos else self.apply_openai_selected()
 
+    def apply_local_all(self):
+        targets = self._ai_targets(True)
+        if not targets:
+            messagebox.showwarning("", self.t("Avval rasm tanlang."))
+            return
+        self._start_ai_job(targets, "local")
+
+    def apply_local_selected(self):
+        if self.cur is None:
+            messagebox.showwarning("", self.t("Avval rasm tanlang."))
+            return
+        self._start_ai_job([self.cur], "local")
+
     def _ensure_openai_ready(self) -> str | None:
         if not self.online:
             status = connectivity.check_online(timeout=2.0)
@@ -1677,6 +1966,19 @@ class App:
         if not targets:
             messagebox.showwarning("", self.t("Avval rasm tanlang."))
             return
+        settings = self._enhance_settings()
+        model = self.model_var.get().strip() or "gpt-image-2.5-sunburst"
+        quality = self.openai_quality_var.get()
+        preset = self._ai_preset_key()
+        estimate = AI.estimate_openai_batch_cost([self.items[i]["path"] for i in targets], settings, model=model, quality=quality, preset=preset)
+        if estimate["uncached"]:
+            msg = (
+                f"{self.t('OpenAI taxminiy xarajat')}: ${estimate['estimated_cost']:.4f}\n"
+                f"{self.t('APIga yuboriladi')}: {estimate['uncached']}  |  Cache: {estimate['cached']}\n\n"
+                f"{self.t('Davom etamizmi?')}"
+            )
+            if not messagebox.askyesno("OpenAI", msg):
+                return
         key = self._ensure_openai_ready()
         if key:
             self._start_ai_job(targets, "openai", key)
@@ -1698,14 +2000,32 @@ class App:
         model = self.model_var.get().strip() or "gpt-image-2.5-sunburst"
         quality = self.openai_quality_var.get()
         preset = self._ai_preset_key()
-        self.status.configure(text=self.t("AI ishlayapti..."))
+        self.status.configure(text=self.t("AI ishlayapti...") if mode == "openai" else self.t("Local tuzatish..."))
         self.gen_btn.configure(state="disabled")
         self.prev_btn.configure(state="disabled")
         self.cancel_btn.configure(state="normal")
         threading.Thread(target=self._ai_worker, args=(targets, mode, key, settings, model, quality, preset), daemon=True).start()
         self.root.after(120, self._poll)
 
-    def _ai_worker(self, targets, mode, key="", settings=None, model="", quality="medium", preset="auto"):
+    def _ai_history_entry(self, item, provider, model, quality, preset, out, cache_hit, status, cost=0.0, error=""):
+        Store.append_ai_history(
+            {
+                "provider": provider,
+                "model": model,
+                "quality": quality,
+                "preset": preset,
+                "source_name": Path(item["path"]).name,
+                "source_path": item["path"],
+                "output_path": str(out or ""),
+                "cache_hit": cache_hit,
+                "status": status,
+                "estimated_cost": cost,
+                "error": error,
+            }
+        )
+
+    def _ai_worker(self, targets, mode, key="", settings=None, model="", quality="low", preset="auto"):
+        current_item = None
         try:
             settings = settings or AI.EnhanceSettings()
             model = model or "gpt-image-2.5-sunburst"
@@ -1714,25 +2034,45 @@ class App:
                     self.q.put(("cancelled", 0, self.t("Bekor qilindi"), False))
                     return
                 item = self.items[idx]
-                provider = "openai"
-                cache_model = f"{model}:{quality}:{preset}"
-                out = AI.cache_path(item["path"], settings, provider, cache_model)
-                if not out.exists():
-                    AI.openai_enhance(
-                        item["path"],
-                        out,
-                        key,
-                        model=model,
-                        quality=quality,
-                        preset=preset,
-                        settings=settings,
-                    )
+                current_item = item
+                if mode == "local":
+                    provider = "local"
+                    cache_model = "pillow"
+                    out = AI.cache_path(item["path"], settings, provider, cache_model)
+                    cache_hit = out.exists()
+                    if not cache_hit:
+                        AI.enhance_local(item["path"], out, settings)
+                    self._ai_history_entry(item, provider, cache_model, "free", preset, out, cache_hit, "ok", 0.0)
+                else:
+                    provider = "openai"
+                    cache_model = AI.openai_cache_model(model, quality, preset)
+                    out = AI.cache_path(item["path"], settings, provider, cache_model)
+                    cache_hit = out.exists()
+                    cost = AI.estimate_openai_cost(item["path"], quality=quality, cached=cache_hit)
+                    if not cache_hit:
+                        AI.openai_enhance(
+                            item["path"],
+                            out,
+                            key,
+                            model=model,
+                            quality=quality,
+                            preset=preset,
+                            settings=settings,
+                            input_max_edge=AI.OPENAI_ECONOMY_MAX_EDGE,
+                        )
+                    self._ai_history_entry(item, provider, model, quality, preset, out, cache_hit, "ok", cost)
                 if self.cancel_event.is_set():
+                    self._ai_history_entry(item, mode, model, quality, preset, out, False, "cancelled", 0.0)
                     self.q.put(("cancelled", 0, self.t("Bekor qilindi"), False))
                     return
                 self.q.put(("ai_one", idx, str(out), f"AI: {n}/{len(targets)}"))
             self.q.put(("ai_done", 100, self.t("AI tayyor"), False))
         except Exception as exc:
+            try:
+                if current_item is not None:
+                    self._ai_history_entry(current_item, mode, model, quality, preset, "", False, "error", 0.0, str(exc))
+            except Exception:
+                pass
             self.q.put(("err", 0, str(exc), False))
 
     def _apply_ai_result(self, idx, path):
@@ -1903,12 +2243,23 @@ class App:
             )
             for it in self.items
         ]
+        global_motion_settings = self._global_motion_settings()
+        photo_motion_settings = []
+        for it in self.items:
+            item_motion = it.get("motion_preset")
+            if it.get("motion_settings"):
+                photo_motion_settings.append(it.get("motion_settings"))
+            elif item_motion in SE.MOTION_PRESETS and item_motion != "auto":
+                photo_motion_settings.append(None)
+            else:
+                photo_motion_settings.append(global_motion_settings)
         return dict(
             photos=[it["path"] for it in self.items],
             captions={i + 1: it["caption"] for i, it in enumerate(self.items) if it["caption"].strip()},
             enhanced_photos=enhanced,
             photo_durations=photo_durations,
             photo_motions=photo_motions,
+            photo_motion_settings=photo_motion_settings,
             text_enabled=bool(self.text_enabled_var.get()),
             show_title_card=bool(self.show_title_var.get()),
             show_captions=bool(self.show_captions_var.get()),
@@ -1970,6 +2321,7 @@ class App:
         c["photos"] = c["photos"][:4]
         c["photo_durations"] = [min(1.8, float(v)) for v in c.get("photo_durations", [])[:4]]
         c["photo_motions"] = c.get("photo_motions", [])[:4]
+        c["photo_motion_settings"] = c.get("photo_motion_settings", [])[:4]
         c["captions"] = {k: v for k, v in c["captions"].items() if k <= 4}
         c.update(resolution="720p (tez)", photo_duration=1.8, transition_dur=0.5, title_duration=1.8, outro_duration=1.8, crf=23, preset="veryfast", output=os.path.join(tempfile.gettempdir(), "pvs_namuna.mp4"))
         self._start(c, True)
@@ -2008,10 +2360,12 @@ class App:
                 elif m[0] == "ai_done":
                     self._restore_main_buttons()
                     self.status.configure(text=self.t("AI tayyor"))
+                    self.refresh_ai_history()
                     return
                 elif m[0] == "cancelled":
                     self._restore_main_buttons()
                     self.status.configure(text=self.t("Bekor qilindi"))
+                    self.refresh_ai_history()
                     return
                 elif m[0] == "done":
                     self._restore_main_buttons()
@@ -2035,6 +2389,7 @@ class App:
                 elif m[0] == "err":
                     self._restore_main_buttons()
                     self.status.configure(text=self.t("Xato"))
+                    self.refresh_ai_history()
                     messagebox.showerror("Xato", str(m[2]))
                     return
         except queue.Empty:

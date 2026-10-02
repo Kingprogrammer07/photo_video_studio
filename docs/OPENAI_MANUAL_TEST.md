@@ -27,11 +27,29 @@ Use this checklist only with a real OpenAI API key and non-sensitive test photos
 
 1. Choose one photo.
 2. Set a visible AI/pro adjustment, for example higher saturation and sharpness.
-3. Choose an `AI preset`, then run `OpenAI bilan tanlangan rasmni tuzatish`.
-4. Confirm the photo row shows `[AI]`.
-5. Confirm the draggable `Oldin/Keyin` divider displays a visible difference.
-6. Confirm the enhanced file appears under `%APPDATA%\PhotoVideoStudio\cache\ai\`.
-7. Confirm the original photo bytes and modified time did not change.
+3. Confirm `OpenAI sifat` is `low` unless intentionally testing a higher-cost quality.
+4. Choose an `AI preset`, then run `OpenAI bilan tanlangan rasmni tuzatish`.
+5. Confirm the photo row shows `[AI]`.
+6. Confirm the draggable `Oldin/Keyin` divider displays a visible difference.
+7. Confirm the enhanced file appears under `%APPDATA%\PhotoVideoStudio\cache\ai\`.
+8. Confirm the original photo bytes and modified time did not change.
+
+## Cost And History
+
+1. Open `Sozlamalar` and check `AI xarajatlari`.
+2. Confirm the latest row shows the photo name, status `ok`, `api`, and a non-zero estimated cost.
+3. Run the same OpenAI enhance again with the same settings.
+4. Confirm the latest row shows `cache` and `$0.0000`.
+5. Click `CSV eksport`, save a CSV, and confirm it contains no API key or prompt text.
+6. Compare the app estimate with the OpenAI dashboard; treat the dashboard as the source of truth.
+
+## Batch Cost Confirmation
+
+1. Add several test photos.
+2. Click `Hammasini OpenAI bilan tuzatish`.
+3. Confirm the app shows uncached count, cached count, and estimated cost before sending.
+4. Cancel once and confirm no new OpenAI cache files are created.
+5. Run again and confirm history rows are added for each processed photo.
 
 ## Render With Enhanced Photo
 
