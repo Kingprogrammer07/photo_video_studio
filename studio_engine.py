@@ -104,6 +104,15 @@ def _ff_round_expr(expr):
 def _ff_even_expr(expr):
     return f"max(2,2*floor(({expr})/2))"
 
+def _motion_supersample(W, H, fps):
+    try:
+        fps_i = int(float(fps))
+    except Exception:
+        fps_i = 30
+    if fps_i >= 50 and max(int(W), int(H)) <= 1920:
+        return 2
+    return 1
+
 def resolve_photo_durations(count, default_duration, overrides=None):
     result = []
     overrides = list(overrides or [])
@@ -472,21 +481,25 @@ def _kb(i):
     return seq[i%len(seq)]
 def _vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain,motion=None,i=0,motion_settings=None):
     N=int(dur*fps)
-    ax=0.95*dx; ay=0.7*dy; half=N/2; sc=max(3840,int(W*1.5))
+    ssample=_motion_supersample(W,H,fps)
+    OW,OH=W*ssample,H*ssample
+    ax=0.95*dx*ssample; ay=0.7*dy*ssample; half=N/2; sc=max(3840,int(OW*1.5))
     if (motion and motion!="auto") or motion_settings:
-        spec=_motion_spec(motion or "auto",i,amt,W,H,motion_settings)
+        spec=_motion_spec(motion or "auto",i,amt,OW,OH,motion_settings)
         ss=max(1.0,float(spec["start_scale"])); es=max(1.0,float(spec["end_scale"]))
         prog=_motion_progress_expr(f"on/{max(1,N-1)}", spec.get("speed",1.0))
         z=f"'{ss:.4f}+({es-ss:.6f})*{prog}'"
-        sdx=float(spec["start_dx"])*sc/max(1,W); edx=float(spec["end_dx"])*sc/max(1,W)
-        sdy=float(spec["start_dy"])*sc/max(1,H); edy=float(spec["end_dy"])*sc/max(1,H)
+        sdx=float(spec["start_dx"])*sc/max(1,OW); edx=float(spec["end_dx"])*sc/max(1,OW)
+        sdy=float(spec["start_dy"])*sc/max(1,OH); edy=float(spec["end_dy"])*sc/max(1,OH)
         x_inner=f"iw/2-(iw/zoom/2)+({sdx:.3f}+({edx-sdx:.3f})*{prog})"
         y_inner=f"ih/2-(ih/zoom/2)+({sdy:.3f}+({edy-sdy:.3f})*{prog})"
     else:
         z=f"'min(1.02+{amt/N:.6f}*on,{1.02+amt:.3f})'" if zdir=="in" else f"'max({1.02+amt:.3f}-{amt/N:.6f}*on,1.02)'"
         x_inner=f"iw/2-(iw/zoom/2)+{ax:.3f}*(on-{half:.1f})"; y_inner=f"ih/2-(ih/zoom/2)+{ay:.3f}*(on-{half:.1f})"
     x=f"'{_ff_round_expr(x_inner)}'"; y=f"'{_ff_round_expr(y_inner)}'"
-    base=f"scale={sc}:-2:flags=lanczos+accurate_rnd,zoompan=z={z}:d={N}:x={x}:y={y}:s={W}x{H}:fps={fps}"
+    base=f"scale={sc}:-2:flags=lanczos+accurate_rnd,zoompan=z={z}:d={N}:x={x}:y={y}:s={OW}x{OH}:fps={fps}"
+    if ssample > 1:
+        base+=f",scale={W}:{H}:flags=lanczos+accurate_rnd"
     if vig: base+=",vignette=PI/5.0"
     if grain: base+=",noise=alls=6:allf=t"
     return base,N
@@ -525,18 +538,20 @@ def render_static_scene(gp,cap_png,dur,i,W,H,fps,grain,bloom,out,cancel_event=No
           "-c:v","libx264","-crf","12","-preset","veryfast","-pix_fmt","yuv420p",out], cancel_event)
 
 def render_background_motion_scene(gp,bg_path,cap_png,dur,i,W,H,fps,grain,bloom,out,layout,scale,frame,motion=None,cancel_event=None,motion_settings=None):
-    bg=_cover(Image.open(bg_path),W,H).convert("RGB")
+    ssample=_motion_supersample(W,H,fps)
+    SW,SH=W*ssample,H*ssample
+    bg=_cover(Image.open(bg_path),SW,SH).convert("RGB")
     bg_tmp=out+".bg.jpg"; panel_tmp=out+".panel.png"
     bg.save(bg_tmp,quality=94)
-    panel=_photo_panel(Image.open(gp),_photo_box(W,H,layout,scale),frame)
+    panel=_photo_panel(Image.open(gp),_photo_box(SW,SH,layout,scale),frame)
     panel.save(panel_tmp)
-    N=int(dur*fps); spec=_motion_spec(motion or "auto",i,0.15,W,H,motion_settings)
+    N=int(dur*fps); spec=_motion_spec(motion or "auto",i,0.15,SW,SH,motion_settings)
     ss,es=float(spec["start_scale"]),float(spec["end_scale"])
     sdx,edx=float(spec["start_dx"]),float(spec["end_dx"])
     sdy,edy=float(spec["start_dy"]),float(spec["end_dy"])
-    cx,cy=W/2,H/2
+    cx,cy=SW/2,SH/2
     t=f"min(t\\,{dur:.4f})/{max(0.001,dur):.4f}"
-    parts=[f"[0:v]scale={W}:{H},setsar=1,fps={fps}"]
+    parts=[f"[0:v]scale={SW}:{SH},setsar=1,fps={fps}"]
     if grain: parts[0]+=",noise=alls=4:allf=t"
     parts[0]+="[bg0]"
     last="bg0"; inp=["-loop","1","-t",str(dur),"-i",bg_tmp,"-loop","1","-t",str(dur),"-i",panel_tmp]
@@ -549,8 +564,12 @@ def render_background_motion_scene(gp,bg_path,cap_png,dur,i,W,H,fps,grain,bloom,
     x_inner=f"{cx:.3f}-overlay_w/2+({sdx:.3f}+({edx-sdx:.3f})*{progress})"
     y_inner=f"{cy:.3f}-overlay_h/2+({sdy:.3f}+({edy-sdy:.3f})*{progress})"
     parts.append(f"[1:v]fps={fps},format=rgba,scale=w='{_ff_even_expr(f'iw*({scale_expr})')}':h='{_ff_even_expr(f'ih*({scale_expr})')}':eval=frame:flags=lanczos+accurate_rnd[p]")
-    parts.append(f"[{last}][p]overlay=x='{_ff_round_expr(x_inner)}':y='{_ff_round_expr(y_inner)}':eval=frame[o0]")
-    last="o0"
+    motion_label="oh" if ssample > 1 else "o0"
+    parts.append(f"[{last}][p]overlay=x='{_ff_round_expr(x_inner)}':y='{_ff_round_expr(y_inner)}':eval=frame[{motion_label}]")
+    last=motion_label
+    if ssample > 1:
+        parts.append(f"[{last}]scale={W}:{H}:flags=lanczos+accurate_rnd[o0]")
+        last="o0"
     if cap_png:
         inp+=["-loop","1","-t",str(dur),"-i",cap_png]
         fade_out=max(0.0,dur-1.0)

@@ -38,7 +38,7 @@ API keys are not stored in JSON. On Windows, `pvs_storage.py` uses Windows Crede
 - Enhanced photos are cache files and are passed to `build_video()` through `enhanced_photos`.
 - Background rendering uses `background_path`, `photo_layout`, `photo_scale`, and `photo_frame`.
 - With a background, photo scenes are rendered as a stable background plus animated foreground photo/frame layer. Motion presets include `auto`, `still`, `zoom_in`, `zoom_out`, `tiny_to_big`, `dramatic_zoom`, `left_to_center`, `right_to_center`, `slow_pan_left`, `slow_pan_right`, and `bottom_to_center`.
-- Motion rendering deliberately rounds animated coordinates and uses even-sized scaled layers with Lanczos accurate rounding. This prevents 60fps exports from showing 1px photo jitter during scale/overlay animation.
+- Motion rendering deliberately rounds animated coordinates and uses even-sized scaled layers with Lanczos accurate rounding. HD 60fps exports render motion at 2x internal resolution and downscale to final size to reduce zoom shimmer during photo growth.
 - `tiny_to_big` now defaults to a gentler `0.45 -> 1.10` scale and slower easing. Users can adjust start scale, end scale, motion speed, and X/Y drift globally or per selected slide.
 - `build_video(config)` accepts `photo_durations`, `photo_motions`, and `photo_motion_settings`. Missing or invalid durations fall back to global `photo_duration`; unknown motion presets fall back to `auto`; invalid motion setting values are clamped.
 - `build_video(config)` accepts `text_enabled`, `show_title_card`, `show_outro_card`, `show_captions`, and `font_preset`. When title/outro are disabled, those clips are not rendered; one-clip videos mux without xfade.
@@ -70,9 +70,9 @@ $env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src";
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_release.ps1 -SkipInstaller
 ```
 
-Result: `38 passed`. PyInstaller onedir build completed and bundled ffmpeg was copied.
+Result: `39 passed` for the pytest suite. PyInstaller onedir build completed earlier and bundled ffmpeg was copied.
 
-Also verified real ffmpeg smoke renders with temporary photos/backgrounds after cancel-aware, motion, and text-toggle changes. The latest smoke covered short user audio looping through all slides, custom `tiny_to_big` motion at 30fps, and both background/fonsiz 60fps motion exports in `%TEMP%`.
+Also verified real ffmpeg smoke renders with temporary photos/backgrounds after cancel-aware, motion, and text-toggle changes. The latest smoke covered short user audio looping through all slides, custom `tiny_to_big` motion at 30fps, regular background/fonsiz 60fps motion exports, and supersampled background/fonsiz 60fps motion exports in `%TEMP%`.
 
 ## Git Status
 

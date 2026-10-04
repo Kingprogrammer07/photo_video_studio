@@ -125,8 +125,18 @@ def test_motion_filters_use_stable_rounding():
 
     vf, _frames = se._vf(2.0, "in", 1, 0.2, 1280, 720, 60, False, 0.15, False, "tiny_to_big", 0)
     assert "scale=3840:-2:flags=lanczos+accurate_rnd" in vf
+    assert ":s=2560x1440:fps=60,scale=1280:720:flags=lanczos+accurate_rnd" in vf
     assert "x='floor((" in vf
     assert "y='floor((" in vf
+
+
+def test_motion_supersample_targets_high_fps_hd_exports():
+    import studio_engine as se
+
+    assert se._motion_supersample(1280, 720, 60) == 2
+    assert se._motion_supersample(1920, 1080, 60) == 2
+    assert se._motion_supersample(3840, 2160, 60) == 1
+    assert se._motion_supersample(1280, 720, 30) == 1
 
 
 def test_background_motion_filter_uses_even_scale_and_rounded_overlay(monkeypatch, tmp_path):
@@ -158,9 +168,11 @@ def test_background_motion_filter_uses_even_scale_and_rounded_overlay(monkeypatc
         motion_settings={"start_scale": 0.45, "end_scale": 1.1, "speed": 0.55},
     )
     fc = calls[0][calls[0].index("-filter_complex") + 1]
+    assert "scale=2560:1440,setsar=1,fps=60" in fc
     assert "2*floor" in fc
     assert "flags=lanczos+accurate_rnd" in fc
     assert "overlay=x='floor((" in fc
+    assert "scale=1280:720:flags=lanczos+accurate_rnd[o0]" in fc
 
 
 def test_build_video_passes_per_slide_motion_settings(monkeypatch, tmp_path):

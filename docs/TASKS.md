@@ -50,13 +50,15 @@ Last updated: 2026-10-05
 - Added FPS normalization to background foreground-photo motion for smoother rendered animation.
 - Stabilized 60fps photo motion by rounding animated coordinates and forcing even-sized scaled layers.
 - Added tests for jitter-safe ffmpeg filter construction.
+- Reduced remaining zoom shimmer by rendering HD 60fps motion scenes at 2x internal resolution before downscaling.
+- Added regression coverage for the high-FPS motion supersampling path.
 
 ## Next High-Value Tasks
 
 - Manually validate OpenAI enhance with a real API key using `docs/OPENAI_MANUAL_TEST.md`.
 - Compare app-estimated OpenAI cost against real OpenAI dashboard usage after a live-key test.
 - Manually verify live motion preview smoothness on the target Windows laptop.
-- Manually verify exported motion smoothness on the target Windows laptop with several FPS choices.
+- Manually verify exported motion smoothness on the target Windows laptop with several FPS choices after the supersampling fix.
 - Install Inno Setup and run full `build_exe.bat` to produce `release\PhotoVideoStudioSetup-0.3.0.exe`.
 - Create first GitHub Release with `scripts\publish_release.ps1`, then test in-app update check against that release.
 - Test drag-and-drop on a machine with `tkinterdnd2` installed.
@@ -70,7 +72,8 @@ Last updated: 2026-10-05
 
 - OpenAI enhance is wired through the Images edit endpoint but still needs real API-key/manual validation with real photos.
 - OpenAI cost values shown in-app are estimates for user guidance; the OpenAI billing dashboard remains the source of truth.
-- Background scenes support foreground photo/frame motion while the background stays stable; fonsiz scenes still use the existing zoompan-style full-photo pipeline.
+- HD 60fps motion scenes now use 2x internal rendering to reduce shimmer; 4K exports stay at 1x internal resolution to avoid extremely slow renders.
+- Background scenes support foreground photo/frame motion while the background stays stable; fonsiz scenes still use the zoompan-style full-photo pipeline with the same HD 60fps supersampling safeguard.
 - Drag-and-drop is optional and only activates when `tkinterdnd2` is present; the dependency is intentionally not added to `requirements.txt`.
 - First releases are unsigned, so Windows SmartScreen may show a warning until code signing is added.
 - Full installer build was not run in this pass because Inno Setup (`iscc`) is not installed on PATH.

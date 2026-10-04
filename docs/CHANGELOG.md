@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Reduced remaining zoom shimmer by supersampling HD 60fps motion scenes internally before downscaling to the final export size.
+- Applied the same supersampled path to both background foreground-photo motion and fonsiz `zoompan` scenes.
 - Stabilized 60fps slideshow motion by rounding animated crop/overlay coordinates and forcing foreground scaled layers to even dimensions.
 - Added Lanczos accurate rounding to animated scaling filters to reduce 1px photo jitter during zoom/pan motion.
 
@@ -11,8 +13,8 @@
 
 - `python -m py_compile app.py studio_engine.py image_enhance.py pvs_storage.py starter_pack.py connectivity.py runtime_paths.py updater.py version.py video_converter\src\video_converter\converter.py`
 - `$env:PYTHONPATH="C:\Users\Admin\Desktop\photo_video_studio\video_converter\src"; python -m pytest tests video_converter\tests`
-- Result: `38 passed`.
-- Real ffmpeg smoke renders completed for background and fonsiz 60fps motion exports.
+- Result: `39 passed`.
+- Real ffmpeg smoke renders completed for background and fonsiz 60fps motion exports, including the supersampled path.
 
 ## 2026-10-02
 
