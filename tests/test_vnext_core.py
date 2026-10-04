@@ -120,6 +120,49 @@ def test_motion_preset_unknown_falls_back_to_auto():
     assert custom["start_dx"] == pytest.approx(-384.0)
 
 
+def test_motion_filters_use_stable_rounding():
+    import studio_engine as se
+
+    vf, _frames = se._vf(2.0, "in", 1, 0.2, 1280, 720, 60, False, 0.15, False, "tiny_to_big", 0)
+    assert "scale=3840:-2:flags=lanczos+accurate_rnd" in vf
+    assert "x='floor((" in vf
+    assert "y='floor((" in vf
+
+
+def test_background_motion_filter_uses_even_scale_and_rounded_overlay(monkeypatch, tmp_path):
+    import studio_engine as se
+
+    bg = tmp_path / "bg.jpg"
+    photo = tmp_path / "photo.png"
+    out = tmp_path / "scene.mkv"
+    Image.new("RGB", (1280, 720), (20, 80, 130)).save(bg)
+    Image.new("RGB", (640, 480), (180, 120, 80)).save(photo)
+    calls = []
+    monkeypatch.setattr(se, "_run", lambda cmd, cancel_event=None: calls.append(cmd))
+    se.render_background_motion_scene(
+        str(photo),
+        str(bg),
+        None,
+        2.0,
+        0,
+        1280,
+        720,
+        60,
+        False,
+        False,
+        str(out),
+        "center",
+        0.65,
+        {"border": True, "shadow": True},
+        "tiny_to_big",
+        motion_settings={"start_scale": 0.45, "end_scale": 1.1, "speed": 0.55},
+    )
+    fc = calls[0][calls[0].index("-filter_complex") + 1]
+    assert "2*floor" in fc
+    assert "flags=lanczos+accurate_rnd" in fc
+    assert "overlay=x='floor((" in fc
+
+
 def test_build_video_passes_per_slide_motion_settings(monkeypatch, tmp_path):
     import studio_engine as se
 

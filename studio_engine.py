@@ -98,6 +98,12 @@ def _motion_progress_expr(progress, speed):
     exponent = 1.0 / speed
     return f"pow({progress},{exponent:.5f})"
 
+def _ff_round_expr(expr):
+    return f"floor(({expr})+0.5)"
+
+def _ff_even_expr(expr):
+    return f"max(2,2*floor(({expr})/2))"
+
 def resolve_photo_durations(count, default_duration, overrides=None):
     result = []
     overrides = list(overrides or [])
@@ -474,12 +480,13 @@ def _vf(dur,zdir,dx,dy,W,H,fps,vig,amt,grain,motion=None,i=0,motion_settings=Non
         z=f"'{ss:.4f}+({es-ss:.6f})*{prog}'"
         sdx=float(spec["start_dx"])*sc/max(1,W); edx=float(spec["end_dx"])*sc/max(1,W)
         sdy=float(spec["start_dy"])*sc/max(1,H); edy=float(spec["end_dy"])*sc/max(1,H)
-        x=f"'iw/2-(iw/zoom/2)+({sdx:.3f}+({edx-sdx:.3f})*{prog})'"
-        y=f"'ih/2-(ih/zoom/2)+({sdy:.3f}+({edy-sdy:.3f})*{prog})'"
+        x_inner=f"iw/2-(iw/zoom/2)+({sdx:.3f}+({edx-sdx:.3f})*{prog})"
+        y_inner=f"ih/2-(ih/zoom/2)+({sdy:.3f}+({edy-sdy:.3f})*{prog})"
     else:
         z=f"'min(1.02+{amt/N:.6f}*on,{1.02+amt:.3f})'" if zdir=="in" else f"'max({1.02+amt:.3f}-{amt/N:.6f}*on,1.02)'"
-        x=f"'iw/2-(iw/zoom/2)+{ax:.3f}*(on-{half:.1f})'"; y=f"'ih/2-(ih/zoom/2)+{ay:.3f}*(on-{half:.1f})'"
-    base=f"scale={sc}:-1,zoompan=z={z}:d={N}:x={x}:y={y}:s={W}x{H}:fps={fps}"
+        x_inner=f"iw/2-(iw/zoom/2)+{ax:.3f}*(on-{half:.1f})"; y_inner=f"ih/2-(ih/zoom/2)+{ay:.3f}*(on-{half:.1f})"
+    x=f"'{_ff_round_expr(x_inner)}'"; y=f"'{_ff_round_expr(y_inner)}'"
+    base=f"scale={sc}:-2:flags=lanczos+accurate_rnd,zoompan=z={z}:d={N}:x={x}:y={y}:s={W}x{H}:fps={fps}"
     if vig: base+=",vignette=PI/5.0"
     if grain: base+=",noise=alls=6:allf=t"
     return base,N
@@ -539,10 +546,10 @@ def render_background_motion_scene(gp,bg_path,cap_png,dur,i,W,H,fps,grain,bloom,
         last="bg1"
     progress=_motion_progress_expr(t, spec.get("speed",1.0))
     scale_expr=f"{ss:.5f}+({es-ss:.5f})*{progress}"
-    x_expr=f"{cx:.3f}-overlay_w/2+({sdx:.3f}+({edx-sdx:.3f})*{progress})"
-    y_expr=f"{cy:.3f}-overlay_h/2+({sdy:.3f}+({edy-sdy:.3f})*{progress})"
-    parts.append(f"[1:v]fps={fps},format=rgba,scale=w='iw*({scale_expr})':h='ih*({scale_expr})':eval=frame[p]")
-    parts.append(f"[{last}][p]overlay=x='{x_expr}':y='{y_expr}':eval=frame[o0]")
+    x_inner=f"{cx:.3f}-overlay_w/2+({sdx:.3f}+({edx-sdx:.3f})*{progress})"
+    y_inner=f"{cy:.3f}-overlay_h/2+({sdy:.3f}+({edy-sdy:.3f})*{progress})"
+    parts.append(f"[1:v]fps={fps},format=rgba,scale=w='{_ff_even_expr(f'iw*({scale_expr})')}':h='{_ff_even_expr(f'ih*({scale_expr})')}':eval=frame:flags=lanczos+accurate_rnd[p]")
+    parts.append(f"[{last}][p]overlay=x='{_ff_round_expr(x_inner)}':y='{_ff_round_expr(y_inner)}':eval=frame[o0]")
     last="o0"
     if cap_png:
         inp+=["-loop","1","-t",str(dur),"-i",cap_png]

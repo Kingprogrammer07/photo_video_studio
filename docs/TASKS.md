@@ -1,6 +1,6 @@
 # Tasks
 
-Last updated: 2026-10-02
+Last updated: 2026-10-05
 
 ## Done In Current vNext Pass
 
@@ -48,6 +48,8 @@ Last updated: 2026-10-02
 - Fixed final muxing so short user-selected music loops instead of cutting the video before later photos appear.
 - Added a direct `Ushbu slide sekund` entry field for selected-slide duration overrides.
 - Added FPS normalization to background foreground-photo motion for smoother rendered animation.
+- Stabilized 60fps photo motion by rounding animated coordinates and forcing even-sized scaled layers.
+- Added tests for jitter-safe ffmpeg filter construction.
 
 ## Next High-Value Tasks
 
